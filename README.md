@@ -27,7 +27,7 @@ Structs can be designed with or without novel syntax. For brevity of presentatio
 
 A minimal plain struct example.
 
-```
+```javascript
 struct class Box {
   constructor(x) { this.x = x; }
   x;
@@ -41,7 +41,7 @@ assertThrows(() => { box.__proto__ = {} }); // structs are sealed
 
 A minimal shared struct example.
 
-```
+```javascript
 // main.js
 shared struct class SharedBox {
   constructor(x) { this.x = x; }
@@ -62,7 +62,7 @@ sharedBox.x = "main";      // x is declared and rhs is primitive
 console.log(sharedBox.x);
 ```
 
-```
+```javascript
 // worker.js
 onmessage = function(e) {
   let sharedBox = e.data.sharedBox;
@@ -77,11 +77,11 @@ The above program is permitted to print out any interleaving:
 - worker worker
 - worker main
 
-## Motivation (and requirements)
+## Motivation and requirements
 
 ### Shared memory for concurrency
 
-One of the main motivations to add structs in JS is to enable shared memory concurrency for a more concurrent future. Like other shared memory features in JavaScript, it is high in expressive power and high in difficulty to use correctly. This proposal is both intended as an incremental step towards higher-level, easier-to-use concurrency abstractions as well as an escape hatch for expert programmers who need the expressivity.
+This proposal seeks to enable to enable more shared memory concurrency for a more concurrent future. Like other shared memory features in JavaScript, it is high in expressive power and high in difficulty to use correctly. This proposal is both intended as an incremental step towards higher-level, easier-to-use (e.g. data-race free by construction) concurrency abstractions as well as an escape hatch for expert programmers who need the expressivity.
 
 The two design principles that this proposal follows are:
 1. Syntax that looks atomic ought to be atomic. (For example, the dot operator on shared structs should only access an existing field and does not tear.)
@@ -125,7 +125,7 @@ This proposal does not intend to explore sophisticated type and runtime guard sy
 
 ### Binary data overlay views
 
-This proposal does not intend to explore the space of overlaying structured views on binary data in an `ArrayBuffer`. This is a requirement arising from the desire for WasmGC integration, which are similarly opaque.
+This proposal does not intend to explore the space of overlaying structured views on binary data in an `ArrayBuffer`. This is a requirement arising from the desire for WasmGC integration, and WasmGC objects are similarly opaque.
 
 Structured overlays are fundamentally about aliasing memory, which we feel is both a different problem domain and sufficiently solvable today in userland. For example, see [buffer-backed objects](https://github.com/GoogleChromeLabs/buffer-backed-object).
 
@@ -153,7 +153,7 @@ Except for strings, sharing primitives in the engine is usually trivial, especia
 
 Strings in production engines have in-place mutation to transition representation in order to optimize for different use cases (e.g. ropes, slices, canonicalized, etc). Sharing strings will likely be the most challenging part of the implementation.
 
-It is possible to support sharing strings by copying-on-sharing, but may be too slow. If possible, lockfree implementations of in-place mutations above is deal.
+It is possible to support sharing strings by copying-on-sharing, but may be too slow. If possible, lockfree implementations of in-place mutations above is ideal.
 
 ## Future work
 
