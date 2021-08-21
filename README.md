@@ -159,4 +159,4 @@ It is possible to support sharing strings by copying-on-sharing, but may be too 
 
 ### Typed fields
 
-In the future, it may be sensible for more efficient memory representation ("packing") to also declare the type and size of fields. It is omitted from this proposal in that it is not a requirement for none of the primary motivations. At the same time, starting without types lets us add them incrementally in the future.
+In the future, it may be sensible for more efficient memory representation ("packing") to also declare the type and size of fields. It is omitted from this proposal in that it is not a requirement for any of the primary motivations. At the same time, starting without types lets us add them incrementally in the future.
