@@ -12,13 +12,14 @@ Structs are declarative sealed objects. There are two kinds of structs: plain st
 
 All structs have the following properties:
 - Opaque storage like plain objects. Not aliasable via `ArrayBuffer` or `SharedArrayBuffer`.
-- Sealed instances. The engine must be able to fix a layout that is unchanging.
-- Immutable prototype chain. Prototypes themselves must be sealed, frozen, or `null`.
+- Sealed instances. The engine must be able to fix a layout that is unchanging. This implies that all superclasses must also be structs.
+- Transitively immutable [[Prototype]] slot. A struct instance's [[Prototype]] slot is immutable, as are the [[Prototype]] slot of every object on its prototype chain.
 
 Shared structs have the following additional properties:
 - Only data fields are allowed. Getters, setters, and methods are disallowed.
-- Shared structs only reference other primitives or shared structs. One consequence is that the prototype chain must be transitively shared structs or `null`.
-- Shared structs default to `null` prototype.
+- All superclasses must be shared structs.
+- Shared structs only reference other primitives or shared structs.
+- Shared structs throw on accessing the [[Prototype]] slot.
 - Shared structs do not have a `.constructor` property.
 
 This proposal is intended to be minimal.
@@ -85,7 +86,7 @@ This proposal seeks to enable to enable more shared memory concurrency for a mor
 
 The two design principles that this proposal follows are:
 1. Syntax that looks atomic ought to be atomic. (For example, the dot operator on shared structs should only access an existing field and does not tear.)
-1. There are no references from shared objects to non-shared objects.
+1. There are no references from shared objects to non-shared objects. The shared and non-shared heaps are conceptually separate, with references only going one way.
 
 ### WasmGC interoperability
 
@@ -93,11 +94,11 @@ The [WasmGC proposal](https://github.com/WebAssembly/gc/blob/master/proposals/gc
 
 WasmGC objects have opaque storage and are not aliased by linear memory, so they cannot be exposed as all Wasm memory is exposed today via `ArrayBuffer`s. We propose structs to be the reflection of WasmGC objects in JS.
 
-WasmGC objects exposed to JS should behave the same as structs, modulo extra type checking that WasmGC require that JS structs do not. JS structs is also good foundation for reflecting into Wasm as WasmGC objects, but that is currently left as future work as it may need a typed field extensions to be worthwhile.
+WasmGC objects exposed to JS should behave the same as structs, modulo extra type checking that WasmGC require that JS structs do not. JS structs is also a good foundation for reflecting into Wasm as WasmGC objects, but that is currently left as future work as it may need a typed field extensions to be worthwhile.
 
 Further, WasmGC itself will eventually have multithreading. It behooves us to maintain a single memory model between JavaScript and Wasm as we have today, even with higher-level object abstractions.
 
-### Predictable performance
+### Predictable instance performance
 
 Objects that are declared with a fixed layout help engines to have more predictable performance. A fixed layout object also lays groundwork for future refinement, such as typed fields.
 
@@ -108,10 +109,6 @@ The following are not currently in scope to maintain the proposal's minimalism. 
 ### Arrays
 
 For structured data, ergonomic ways to declare inline fixed-length fields seems desirable. Additionally, shared arrays also seem similarly desirable.
-
-### Code sharing
-
-Code sharing is not part of this proposal and thus shared structs cannot have methods. This may prove to be unergonomic enough that we bring code sharing in scope. Doing so would likely require a new kind of function cannot close over non-shared objects.
 
 ## Out-of-scope
 
@@ -131,11 +128,50 @@ Structured overlays are fundamentally about aliasing memory, which we feel is bo
 
 ## Proposal
 
-TODO
+This proposal can be developed with or without novel syntax. It is presented with novel syntax below.
 
-### Extending Atomics
+### Plain structs
 
-By default, field accesses on shared structs are unordered. The various Atomics methods will be extended to accept shared structs as a first argument and a field name as the second argument to support sequentially consistent accesses.
+Plain structs are declared with the contextual `struct` keyword in front of a class declaration.
+
+`struct class` expressions parse the same as plain `class` expressions.
+
+During evaluation of a `struct class` expression, the following checks are performed.
+- If there is an `extends` clause and the superclass is not a `struct class`, throw a `TypeError`
+
+When a `struct class` constructor is invoked, it creates instances with the following properties:
+- Instances are sealed
+- Instances' [[Prototype]] slot is immutable after initialization
+
+### Shared structs
+
+Shared structs are declared with the contextual `shared struct` keywords in front of a class declaration. Intuitively, they behave as very restricted structs.
+
+`shared struct class` expressions throw an early error if the following forms are encountered.
+- method
+- getter
+- setter
+- field initializers
+
+During evaluation of a `struct class` expression, the following checks are performed.
+- If there is an `extends` clause and the superclass is not a `shared struct class`, throw a `TypeError`
+
+When a `struct class` constructor is invoked, it creates instances with the following properties:
+- Instances are sealed
+- Instances' [[Prototype]] slot throw a TypeError when accessed
+- Instances do not have a `.constructor` property
+- Instances are shared instead of copied with other agents
+- Instances' identities are preserved when communicated between agents
+- When a value is assigned to an instance field, if it is neither a primitive nor a shared struct instance or is a `Symbol`, throw a `TypeError`
+- Instances' field accesses are unordered shared memory accesses and must not tear (i.e. another agent must not observe a partially written value)
+
+The following `Atomics` methods will be extended to accept shared struct instances as the first argument and a field name as the second argument, to support sequentially consistent accesses.
+- `Atomics.load`
+- `Atomics.store`
+- `Atomics.exchange`
+- `Atomics.compareExchange`
+
+Note that the arithmetic `Atomics` methods like `Atomics.add` are not included because there isn't widespread ISA support for atomic read-modify-write of floating point values. The workaround is to compute locally and store with `Atomics.compareExchange`.
 
 ## Implementation guidance
 
@@ -147,7 +183,7 @@ Structs are declared with fixed layout up front. Engines should make an immutabl
 
 Shared structs should store fields such that underlying architectures can perform atomic stores and loads. This usually means the fields should be at least pointer-width and aligned.
 
-### Strings will be difficult
+### Shared structs: strings will be difficult
 
 Except for strings, sharing primitives in the engine is usually trivial, especially for NaN-boxing implementations.
 
@@ -157,6 +193,18 @@ It is possible to support sharing strings by copying-on-sharing, but may be too 
 
 ## Future work
 
+### Code sharing
+
+Code sharing is not part of this proposal and thus shared structs cannot have methods. This may prove to be unergonomic enough that we bring code sharing in scope. Doing so would likely require a new kind of function cannot close over non-shared objects.
+
+This proposal future-proofs by having shared struct instances throw when touching the [[Prototype]] slot. This will be relaxed with a future proposal when code sharing becomes possible.
+
+See [CODE-SHARING-IDEAS.md](CODE-SHARING-IDEAS.md) for a collection of ideas.
+
 ### Typed fields
 
-In the future, it may be sensible for more efficient memory representation ("packing") to also declare the type and size of fields. It is omitted from this proposal in that it is not a requirement for any of the primary motivations. At the same time, starting without types lets us add them incrementally in the future.
+In the future, it may be sensible for more efficient memory representation ("packing") to also declare the type and size of fields. It is omitted from this proposal in that it is not a requirement for none of the primary motivations. At the same time, starting without types lets us add them incrementally in the future.
+
+### Shared structs: fast cloning
+
+Since structs have fixed layout with an immutable [[Prototype]] slot and no accessors, they are amenable to fast cloning.
