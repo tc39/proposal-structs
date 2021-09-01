@@ -1,10 +1,10 @@
 # JavaScript Structs: Fixed Layout Objects
 
-Stage: 0
+Stage: 1
 
-Author: Shu-yu Guo (@syg) and others TBD
+Author: Shu-yu Guo (@syg)
 
-Champion: Shu-yu Guo (@syg) and others TBD
+Champion: Shu-yu Guo (@syg), Ron Buckton (@rbuckton), Asumu Takikawa (@takikawa), Keith Miller (@kmiller68)
 
 ## Introduction
 
