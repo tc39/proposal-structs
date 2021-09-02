@@ -12,7 +12,7 @@ Structs are declarative sealed objects. There are two kinds of structs: plain st
 
 All structs have the following properties:
 - Opaque storage like plain objects. Not aliasable via `ArrayBuffer` or `SharedArrayBuffer`.
-- Sealed instances. The engine must be able to fix a layout that is unchanging. This implies that all superclasses must also be structs.
+- Instances have all fields initialized in one shot, then sealed. The engine must be able to fix a layout that is unchanging. This implies that all superclasses must also be structs.
 - Transitively immutable [[Prototype]] slot. A struct instance's [[Prototype]] slot is immutable, as are the [[Prototype]] slot of every object on its prototype chain.
 
 Shared structs have the following additional properties:
@@ -140,6 +140,7 @@ During evaluation of a `struct class` expression, the following checks are perfo
 - If there is an `extends` clause and the superclass is not a `struct class`, throw a `TypeError`
 
 When a `struct class` constructor is invoked, it creates instances with the following properties:
+- All instance fields, including those from any superclasses, are defined and initialized to `undefined` before the newly constructed instance escapes to the constructor function (aka "one-shot")
 - Instances are sealed
 - Instances' [[Prototype]] slot is immutable after initialization
 
@@ -157,6 +158,7 @@ During evaluation of a `struct class` expression, the following checks are perfo
 - If there is an `extends` clause and the superclass is not a `shared struct class`, throw a `TypeError`
 
 When a `struct class` constructor is invoked, it creates instances with the following properties:
+- All instance fields are defined and initialized to `undefined` before the newly constructed instance escapes to the constructor function (aka "one-shot")
 - Instances are sealed
 - Instances' [[Prototype]] slot throw a TypeError when accessed
 - Instances do not have a `.constructor` property
