@@ -82,7 +82,7 @@ The above program is permitted to print out any interleaving:
 
 ### Shared memory for concurrency
 
-This proposal seeks to enable to enable more shared memory concurrency for a more concurrent future. Like other shared memory features in JavaScript, it is high in expressive power and high in difficulty to use correctly. This proposal is both intended as an incremental step towards higher-level, easier-to-use (e.g. data-race free by construction) concurrency abstractions as well as an escape hatch for expert programmers who need the expressivity.
+This proposal seeks to enable more shared memory concurrency for a more concurrent future. Like other shared memory features in JavaScript, it is high in expressive power and high in difficulty to use correctly. This proposal is both intended as an incremental step towards higher-level, easier-to-use (e.g. data-race free by construction) concurrency abstractions as well as an escape hatch for expert programmers who need the expressivity.
 
 The two design principles that this proposal follows are:
 1. Syntax that looks atomic ought to be atomic. (For example, the dot operator on shared structs should only access an existing field and does not tear.)
