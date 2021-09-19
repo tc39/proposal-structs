@@ -1,0 +1,19 @@
+{
+  "private": true,
+  "name": "proposal-structs",
+  "description": "Structs/fixed-layout objects for JavaScript",
+  "scripts": {
+    "start": "npm run build-loose -- --watch",
+    "build": "npm run build-loose -- --strict",
+    "build-loose": "ecmarkup --verbose spec.emu out/index.html"
+  },
+  "homepage": "https://github.com/syg/proposal-structs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/syg/proposal-structs.git"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "ecmarkup": "^8.1.0"
+  }
+}
