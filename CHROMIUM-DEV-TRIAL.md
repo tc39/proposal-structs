@@ -24,6 +24,8 @@ sharedBox.x = sharedBox2;  // x is declared and rhs is shared
 assertThrows(() => { sharedBox.x = {}; }); // rhs is not shared
 ```
 
+Shared structs may be brand checked with `SharedStructType.isSharedStruct`. Note that `isSharedStruct(o)` returns `true` if `o` is _any_ shared struct.
+
 ## Shared arrays
 
 Shared arrays are fixed-length JS arrays.
@@ -36,6 +38,8 @@ sharedArray[0] = 42;               // rhs is primitive
 sharedArray[0] = new SharedBox();  // rhs is shared
 assertThrows(() => { sharedArray[0] = {}; }); // rhs is not shared
 ```
+
+Shared arrays may be brand checked with `SharedArray.isSharedArray`.
 
 ## Synchronization primitives
 
@@ -77,6 +81,8 @@ Atomics.Mutex.lock(mutex, () => {
 let count = 1;
 let numWaitersWokenUp = Atomics.Condition.notify(cv, count);
 ```
+
+Mutexes and condition variables may be brand checked with `Atomics.Mutex.isMutex` and `Atomics.Condition.isCondition`, respectively.
 
 # Sharing across threads
 
