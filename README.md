@@ -151,12 +151,6 @@ Atomics.Mutex.lock(mutex, function runsUnderLock() {
 Atomics.Mutex.tryLock(mutex, function runsUnderLock() {
   // Do critical section stuff
 });
-
-// This can be called on any agent. But has *drastically* different
-// performance implications than sync counterparts.
-Atomics.Mutex.lockAsync(mutex, async function runsUnderLock() {
-  // Do critical section stuff
-});
 ```
 
 ```javascript
@@ -172,12 +166,6 @@ Atomics.Mutex.lock(mutex, () => {
 // +Infinity means "all waiters".
 let count = 1;
 let numWaitersWokenUp = Atomics.Condition.notify(cv, count);
-
-Atomics.Mutex.lockAsync(mutex, async () => {
-  // This can be called on any agent. But has *drastically* different
-  // performance implications than sync counterparts.
-  await Atomics.Condition.waitAsync(cv, mutex);
-});
 ```
 
 #### Extending `Atomics.Mutex` to support `using`
@@ -187,6 +175,10 @@ The [Explicit Resource Management](https://github.com/tc39/proposal-explicit-res
 - `Atomics.Mutex.lock(mutex)` can be overloaded to lock `mutex`
 - `Atomics.Mutex.unlock(mutex)` can be added
 - The `[Symbol.dispose]` own property can be added to all `Atomics.Mutex` instances
+
+#### Asynchronous locking and waiting
+
+See [ASYNC-LOCKING-WAITING.md](ASYNC-LOCKING-WAITING.md) for `lockAsync` and `waitAsync`.
 
 ## Motivation and requirements
 
