@@ -108,15 +108,15 @@ let worker = new Worker('worker.js');
 worker.postMessage({ sharedArray });
 
 sharedArray[0] = "main";
-console.log(sharedBox.x);
+console.log(sharedArray[0]);
 ```
 
 ```javascript
 // worker.js
 onmessage = function(e) {
   let sharedArray = e.data.sharedArray;
-  sharedBox[0] = "worker";
-  console.log(sharedBox.x);
+  sharedArray[0] = "worker";
+  console.log(sharedArray[0]);
 };
 ```
 
