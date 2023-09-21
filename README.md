@@ -20,9 +20,10 @@ All structs have the following properties:
 Shared structs have the following additional properties:
 - Only data fields are allowed. Getters, setters, and methods are disallowed.
 - All superclasses must be shared structs.
+- Shared structs do not have user constructors.
 - Shared structs only reference other primitives or shared objects.
-- Shared structs have a null [[Prototype]].
-- Shared structs do not have a `.constructor` property.
+- Shared structs have either a null [[Prototype]] or an agent-local [[Prototype]].
+- Shared structs do not have a `.constructor` property if they have a null [[Prototype]].
 - Shared struct constructors have `[Symbol.hasInstance]` to support `instanceof`.
 
 This proposal is intended to be minimal.
@@ -48,7 +49,6 @@ A minimal shared struct example.
 ```javascript
 // main.js
 shared struct class SharedBox {
-  constructor(x) { this.x = x; }
   x;
 }
 
@@ -125,6 +125,10 @@ Just like the struct example, above program is permitted to print out any interl
 - main worker
 - worker worker
 - worker main
+
+### Attaching behavior to shared structs
+
+This is an involved topic. See [ATTACHING-BEHAVIOR.md](ATTACHING-BEHAVIOR.md).
 
 ### Synchronization primitives
 
@@ -349,7 +353,7 @@ Engines can also choose to implement synchronization primitives entirely in user
 
 ### Code sharing
 
-Code sharing is not part of this proposal and thus shared structs cannot have methods. This may prove to be unergonomic enough that we bring code sharing in scope. Doing so would likely require a new kind of function cannot close over non-shared objects.
+Code sharing is not part of this proposal and thus shared structs cannot have truly shared methods. This may prove to be unergonomic enough that we bring code sharing in scope. Doing so would likely require a new kind of function cannot close over non-shared objects.
 
 This proposal future-proofs by having shared struct instances throw when touching the [[Prototype]] slot. This will be relaxed with a future proposal when code sharing becomes possible.
 
