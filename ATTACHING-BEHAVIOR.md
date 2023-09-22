@@ -15,7 +15,7 @@ Pending bikeshedding, the proposed syntax is as follows.
 ```javascript
 shared struct class SharedThing {
   // Incantation for saying SharedThing has an agent-local prototype.
-  static nonshared prototype;
+  with nonshared prototype;
 }
 let s = new SharedThing;
 
@@ -43,28 +43,30 @@ Consider the following:
 ```javascript
 // Inside worker A:
 shared struct class SharedThing {
-  static nonshared prototype;
+  with nonshared prototype;
 
   x;
   y;
 }
 
-SharedThing.prototype.foo =
-  () => { console.log("do a foo"); };
+SharedThing.prototype = {
+  foo() { console.log("do a foo"); }
+};
 let thing1 = new SharedThing;
 
 workerB.postMessage(thing1);
 
 // Inside worker B:
 shared struct class SharedThing {
-  static nonshared prototype;
+  with nonshared prototype;
 
   x;
   y;
 }
 
-SharedThing.prototype.foo =
-  () => { console.log("do a foo"); };
+SharedThing.prototype = {
+  foo() { console.log("do a foo"); }
+};
 
 onmessage = (thing) => {
   // undefined is not a function!
@@ -76,8 +78,8 @@ In the code snippet above, `thing.foo()` doesn't work because worker A and worke
 
 The proposed solution is to use a agent cluster-wide registry to correlate multiple evaluations of shared struct declarations. Shared struct declarations that are declared to be **registered** have the following semantics:
 
-- When evaluated, if the class name does not exist in the registry, insert a new entry whose key is the class name, and whose value is a description of the layout (i.e. order and names of instance fields, and whether the prototype is agent-local).
-- When evaluated, if the class name already exists in the registry, check if the layout exactly matches the current evaluation's layout. If not, throw.
+- When evaluated, if the source location does not exist in the registry, insert a new entry whose key is the source location, and whose value is a description of the layout (i.e. order and names of instance fields, and whether the prototype is agent-local).
+- When evaluated, if the source location already exists in the registry, check if the layout exactly matches the current evaluation's layout. If not, either throw or do nothing (open design question).
 - Evaluation of the declaration returns a constructor function that always creates instances recognizable by the engine as the same layout. In other words, the registry deduplicates layout.
 - Lookup and insertion into the registry are synchronized and threadsafe.
 
@@ -87,29 +89,36 @@ Consider again the above example with registered shared structs.
 
 ```javascript
 // Inside worker A:
-registered shared struct class SharedThing {
-  static nonshared prototype;
+shared struct class SharedThing {
+  // Incantation to perform auto-correlation.
+  with registered;
+  with nonshared prototype;
 
   x;
   y;
 }
 
-SharedThing.prototype.foo =
-  () => { console.log("do a foo"); };
+SharedThing.prototype = {
+  foo() { console.log("do a foo"); }
+};
+
 let thing1 = new SharedThing;
 
 workerB.postMessage(thing1);
 
 // Inside worker B:
-registered shared struct class SharedThing {
-  static nonshared prototype;
+shared struct class SharedThing {
+  // Incantation to perform auto-correlation.
+  with registered;
+  with nonshared prototype;
 
   x;
   y;
 }
 
-SharedThing.prototype.foo =
-  () => { console.log("do a foo"); };
+SharedThing.prototype = {
+  foo() { console.log("do a foo"); }
+};
 
 onmessage = (thing) => {
   thing.foo(); // do a foo
@@ -120,7 +129,7 @@ Because the two shared struct declarations have the same name, `SharedThing`, an
 
 ### Incompatible layouts
 
-If two registered shared struct declarations share the same name, their layout must match. This means the order and name of their fields must match, and whether the prototype is agent-local must match. A non-match throws.
+If two registered shared struct declarations share the same name, their layout must match. This means the order and name of their fields must match, and whether the prototype is agent-local must match. A non-match might throw or do nothing (open design question). If the chosen behavior is to do nothing (i.e. do not deduplicate), the console ought to warn.
 
 ```javascript
 {
@@ -134,7 +143,7 @@ If two registered shared struct declarations share the same name, their layout m
   registered shared struct class SharedThing {
     y;
     x;
-  } // throws
+  } // either throws or silently do not deduplicate
 }
 ```
 
@@ -144,8 +153,8 @@ While each registered shared struct declaration continues to evaluate to a new c
 
 ```javascript
 {
-  registered shared struct class SharedThing {
-    static nonshared prototype;
+  shared struct class SharedThing {
+    with nonshared prototype;
 
     x;
     y;
@@ -155,8 +164,8 @@ While each registered shared struct declaration continues to evaluate to a new c
 }
 
 {
-  registered shared struct class SharedThing {
-    static nonshared prototype;
+  shared struct class SharedThing {
+    with nonshared prototype;
 
     x;
     y;
@@ -170,25 +179,20 @@ While this may be surprising, this pattern seems unlikely to occur in the wild. 
 
 ## Communication channel
 
-The registry proposed above is a communication channel because of the throwing semantics if incompatible shared structs are registered with the same name.
-
-Communication channels in themselves are not a problem so long as they are _deniable_. To that end, we also propose a method to freeze the registry such that any additional `registered shared struct` declarations will always throw. This registry is not reified otherwise in the language.
-
-```javascript
-// SharedStructRegistry is a namespace object.
-SharedStructRegistry.freeze();
-
-assertThrows(() => {
-  registered shared struct class SharedThing {} // throws
-});
-```
+Since the registry key is source location, the key is unforgeable. If on layout mismatch, the chosen behavior is to do nothing, then this is not an observable communication channel. If instead the chosen behavior is to throw, then to exploit the registry as a communication channel requires being able to modify source text and triggering re-evaluations of said source text, which seems... unlikely?
 
 ## Should this be the default?
 
-It is arguable that the `registered` behavior ought to be the default behavior for all shared structs. Making it the default would save on modifier keyword soup and also makes the currently proposed default less surprising.
+It is arguable that the registered behavior ought to be the default behavior for all shared structs. Making it the default would save on modifier keyword soup and also makes the currently proposed default less surprising.
+
+## Bundler guidance
+
+Because the source location is now meaningful, duplication of shared struct declarations in source text is no longer a semantics-preserving transformation. Bundlers and program transforms must take care during e.g., tree shaking on specific worker threads, to duplicate shared struct declarations.
 
 ## Upshot
 
 The combination of agent-local prototypes and an agent cluster-wide registry means worker threads can independently evaluate the same shared struct definitions (i.e. same source text) without additional coordination, and things more or less work as expected.
 
-Additionally, it has the performance advantage of performing deduplication of layouts at declaration time. This means more monomorphic inline caches and better sharing.
+### Performance advantages
+
+Additionally, it has the performance advantage of performing deduplication of layouts at declaration time. This means more monomorphic inline caches and better sharing. Without deduplication of layout, the number of morally equivalent shared struct types scales with the number of threads, which means a multithreaded program becomes more polymorphic with more threads, which is highly undesirable.
