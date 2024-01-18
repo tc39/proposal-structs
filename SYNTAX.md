@@ -181,7 +181,8 @@ shared struct S {
   }
 
   decrement() {
-    return Atonics.sub(ref this.#count, 1);
+    return Atomics.sub(ref this.#count, 1);
+
   }
 }
 ```
