@@ -147,7 +147,7 @@ However, this may not guarantee quite the same level of "hard privacy" that a pr
 depending on what final mechanisms we might choose for correlating `shared struct` declarations. If malfeasant code is
 able to construct a `Worker` that can forge an alternative definition for `S`, they would be able to craft replacement
 methods that can directly access shared private state. For that reason, it would be recommended to avoid granting
-untrusted code the ability to load an alternative definition for the `shared struct``, possibly through the use of CSP.
+untrusted code the ability to load an alternative definition for the `shared struct`, possibly through the use of CSP.
 
 # Future Syntax Support: Decorators
 
