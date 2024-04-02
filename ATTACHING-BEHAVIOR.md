@@ -6,15 +6,17 @@ Nevertheless, it is crucial to the developer experience of shared structs that o
 
 For example, a codebase may want to incrementally adopt multithreading in an existing codebase by converting some existing `class` declarations. These existing `class` declarations are likely to have methods. Without the ability to attach methods to shared structs, the whole codebase would need to be refactored such that uses of shared structs instances use free functions instead of method calls. This is poor DX that should be solved.
 
-## Agent-local prototypes
+## Realm-local prototypes
 
-In the short term, the crux of the idea to attach behavior to shared structs is the ability to have agent-local (i.e. thread-local) prototype objects. A shared struct that declares its prototype to be agent-local will have a plain object lazily created in the current agent upon access. Since the prototype is a plain object and agent-local, it can reference any value, including ordinary functions.
+In the short term, the crux of the idea to attach behavior to shared structs is the ability to have realm-local prototype objects, analogous to the per-realm primitive prototype wrappers (e.g. `Number.prototype`). A shared struct that declares its prototype to be realm-local will have a plain object lazily created in the current realm upon access. Since the prototype is a plain object and realm-local, it can reference any value, including ordinary functions.
 
 Pending bikeshedding, the proposed syntax is as follows.
 
 ```javascript
-shared struct class SharedThing {
-  // Incantation for saying SharedThing has an agent-local prototype.
+shared struct SharedThing {
+  // Incantation for saying SharedThing has an realm-local prototype.
+  //
+  // Open to bikeshedding.
   with nonshared prototype;
 }
 let s = new SharedThing;
@@ -26,13 +28,7 @@ Object.getPrototypeOf(s).whereAmI = () => { return "local to A" };
 Object.getPrototypeOf(s).whereAmI = () => { return "local to B" };
 ```
 
-Semantically, agent-local prototypes is equivalent to a per-agent `WeakMap` keyed by some abstract "type identifier" corresponding to the shared struct (e.g. the underlying `map` in V8's object representation).
-
-### Realm-local?
-
-It is an open design question whether the right granularity is agent-local or Realm-local.
-
-The concept of an agent is not currently reified in the language, so a Realm may be the more natural choice. On the other hand, requiring prototype setup per-Realm may be onerous and unnecessary for most applications.
+Semantically, realm-local prototypes is equivalent to a per-realm `WeakMap` keyed by some abstract "type identifier" corresponding to the shared struct (e.g. the underlying `map` in V8's object representation). This key is not exposed to user code.
 
 ## Coordinating identity continuity among workers
 
@@ -42,7 +38,7 @@ Consider the following:
 
 ```javascript
 // Inside worker A:
-shared struct class SharedThing {
+shared struct SharedThing {
   with nonshared prototype;
 
   x;
@@ -57,7 +53,7 @@ let thing1 = new SharedThing;
 workerB.postMessage(thing1);
 
 // Inside worker B:
-shared struct class SharedThing {
+shared struct SharedThing {
   with nonshared prototype;
 
   x;
@@ -74,22 +70,23 @@ onmessage = (thing) => {
 };
 ```
 
-In the code snippet above, `thing.foo()` doesn't work because worker A and worker B have different evaluations of `SharedThing`. While the two `SharedThing`s have identical layout, they are nevertheless different "types". So, `thing` from worker A is an instance of worker A's `SharedThing`, whose agent-local prototype was never set up by worker B. Worker B only set up the agent-local prototype of its own evaluation of `SharedThing`.
+In the code snippet above, `thing.foo()` doesn't work because worker A and worker B have different evaluations of `SharedThing`. While the two `SharedThing`s have identical layout, they are nevertheless different "types". So, `thing` from worker A is an instance of worker A's `SharedThing`, whose realm-local prototype was never set up by worker B. Worker B only set up the realm-local prototype of its own evaluation of `SharedThing`.
 
-The proposed solution is to use a agent cluster-wide registry to correlate multiple evaluations of shared struct declarations. Shared struct declarations that are declared to be **registered** have the following semantics:
+The proposed solution is to use an agent cluster-wide registry to correlate multiple evaluations of shared struct declarations. Shared struct declarations that are declared to be **registered** have the following semantics:
 
-- When evaluated, if the source location does not exist in the registry, insert a new entry whose key is the source location, and whose value is a description of the layout (i.e. order and names of instance fields, and whether the prototype is agent-local).
+- When evaluated, if the source location does not exist in the registry, insert a new entry whose key is the source location, and whose value is a description of the layout (i.e. order and names of instance fields, and whether the prototype is realm-local).
 - When evaluated, if the source location already exists in the registry, check if the layout exactly matches the current evaluation's layout. If not, either throw or do nothing (open design question).
 - Evaluation of the declaration returns a constructor function that always creates instances recognizable by the engine as the same layout. In other words, the registry deduplicates layout.
 - Lookup and insertion into the registry are synchronized and threadsafe.
+- The registry is not programatically accessible to user code.
 
-The primary purpose of the registry is to coordinate the setting up of agent-local prototypes without additional communication.
+The primary purpose of the registry is to coordinate the setting up of realm-local prototypes without additional communication.
 
 Consider again the above example with registered shared structs.
 
 ```javascript
 // Inside worker A:
-shared struct class SharedThing {
+shared struct SharedThing {
   // Incantation to perform auto-correlation.
   with registered;
   with nonshared prototype;
@@ -107,7 +104,7 @@ let thing1 = new SharedThing;
 workerB.postMessage(thing1);
 
 // Inside worker B:
-shared struct class SharedThing {
+shared struct SharedThing {
   // Incantation to perform auto-correlation.
   with registered;
   with nonshared prototype;
@@ -129,31 +126,31 @@ Because the two shared struct declarations have the same name, `SharedThing`, an
 
 ### Incompatible layouts
 
-If two registered shared struct declarations share the same name, their layout must match. This means the order and name of their fields must match, and whether the prototype is agent-local must match. A non-match might throw or do nothing (open design question). If the chosen behavior is to do nothing (i.e. do not deduplicate), the console ought to warn.
+If two registered shared struct declarations share the same name, their layout must match. This means the order and name of their fields must match, and whether the prototype is realm-local must match. A non-match might throw or do nothing (open design question). If the chosen behavior is to do nothing (i.e. do not deduplicate), the console ought to warn.
 
 ```javascript
 {
-  registered shared struct class SharedThing {
+  registered shared struct SharedThing {
     x;
     y;
   }
 }
 
 {
-  registered shared struct class SharedThing {
+  registered shared struct SharedThing {
     y;
     x;
   } // either throws or silently do not deduplicate
 }
 ```
 
-### Agent-local prototype "surprise"
+### Realm-local prototype "surprise"
 
-While each registered shared struct declaration continues to evaluate to a new constructor function, the layout deduplication means that a registered shared struct declaration may evaluate to a function with an already populated agent-local prototype.
+While each registered shared struct declaration continues to evaluate to a new constructor function, the layout deduplication means that a registered shared struct declaration may evaluate to a function with an already populated realm-local prototype.
 
 ```javascript
 {
-  shared struct class SharedThing {
+  shared struct SharedThing {
     with nonshared prototype;
 
     x;
@@ -164,7 +161,7 @@ While each registered shared struct declaration continues to evaluate to a new c
 }
 
 {
-  shared struct class SharedThing {
+  shared struct SharedThing {
     with nonshared prototype;
 
     x;
@@ -179,7 +176,7 @@ While this may be surprising, this pattern seems unlikely to occur in the wild. 
 
 ## Communication channel
 
-Since the registry key is source location, the key is unforgeable. If on layout mismatch, the chosen behavior is to do nothing, then this is not an observable communication channel. If instead the chosen behavior is to throw, then to exploit the registry as a communication channel requires being able to modify source text and triggering re-evaluations of said source text, which seems... unlikely?
+Since the registry key is source location, the key is unforgeable. If on layout mismatch, the chosen behavior is to do nothing, then this is not an observable communication channel. If instead the chosen behavior is to throw, then to exploit the registry as a communication channel requires being able to modify source text and triggering re-evaluations of said source text, which seems unlikely.
 
 ## Should this be the default?
 

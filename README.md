@@ -10,30 +10,35 @@ Champion: Shu-yu Guo (@syg), Ron Buckton (@rbuckton), Asumu Takikawa (@takikawa)
 
 ### Structs
 
-Structs are declarative sealed objects. There are two kinds of structs: plain structs and shared structs. Plain structs behave as if they were sealed objects. Shared structs have additional restrictions and can be concurrently accessed from different agents.
+Structs are declarative sealed objects. There are two kinds of structs: unshared structs and shared structs. Unshared structs behave as if they were sealed objects. Shared structs have additional restrictions and can be concurrently accessed from different agents.
 
-All structs have the following properties:
+Both unshared and shared structs have the following properties:
 - Opaque storage like plain objects. Not aliasable via `ArrayBuffer` or `SharedArrayBuffer`.
 - Instances have all fields initialized in one shot, then sealed. The engine must be able to fix a layout that is unchanging. This implies that all superclasses must also be structs.
+- Do not have user constructors in the `class` sense, and instead have post-construction initializers. This implies that the return override trick does not work with structs.
+- Struct methods are not generic. They throw if the receiver is not an instance of the struct.
 - Transitively immutable [[Prototype]] slot. A struct instance's [[Prototype]] slot is immutable, as are the [[Prototype]] slot of every object on its prototype chain.
 
 Shared structs have the following additional properties:
-- Only data fields are allowed. Getters, setters, and methods are disallowed.
+- Data fields are shared.
 - All superclasses must be shared structs.
-- Shared structs do not have user constructors.
-- Shared structs only reference other primitives or shared objects.
-- Shared structs have either a null [[Prototype]] or an agent-local [[Prototype]].
-- Shared structs do not have a `.constructor` property if they have a null [[Prototype]].
-- Shared struct constructors have `[Symbol.hasInstance]` to support `instanceof`.
+- Only reference other primitives or shared objects.
+- Have either a null [[Prototype]] or a realm-local [[Prototype]].
+- Do not have a `.constructor` property if the struct has a null [[Prototype]].
+- Getters, setters, and methods are allowed in the case of a realm-local [[Prototype]].
+- Constructors have `[Symbol.hasInstance]` to support `instanceof`.
 
 This proposal is intended to be minimal.
 
-Structs can be designed with or without novel syntax. For brevity of presentation, examples are given using `class` syntax with a `struct` or `shared struct` qualifier.
+Structs can be designed with or without novel syntax, but given the declarative nature and the semantics differences with `class`es, we propose a `class`-like syntax using `struct` and `shared struct`.
 
 A minimal plain struct example.
 
 ```javascript
-struct class Box {
+struct Box {
+  // 'constructor' as a distinguished name is open to bikeshedding, since
+  // this is not really a constructor but is doing post-construction
+  // initialization.
   constructor(x) { this.x = x; }
   x;
 }
@@ -48,7 +53,7 @@ A minimal shared struct example.
 
 ```javascript
 // main.js
-shared struct class SharedBox {
+shared struct SharedBox {
   x;
 }
 
@@ -81,20 +86,23 @@ The above program is permitted to print out any interleaving:
 - worker worker
 - worker main
 
+### Attaching behavior to shared structs
+
+This is an involved topic and has its own document. See [ATTACHING-BEHAVIOR.md](ATTACHING-BEHAVIOR.md).
+
 ### Shared fixed-length arrays
 
 Shared fixed-length arrays are the closed counterpart to Arrays, as structs are the closed counterpart to ordinary JS objects.
 
 Shared fixed-length arrays are always shared. Structured data sharing requires _some_ primitive notion of collections, on top of which more sophisticated collections can be built.
 
-While there is nothing in principle preventing addition of a non-shared fixed-length array, the use case is unclear. Where sharing across agents is not needed, ordinary Array instances are more flexible and already performant.
+While there is nothing in principle preventing addition of a unshared fixed-length array, the use case is currently unmotivated. Where sharing across agents is not needed, ordinary Array instances are more flexible and already performant.
 
 Shared fixed-length arrays have the following property:
 - Length is required at construction time.
 - Instances cannot be resized.
 - Elements can only be other primitives other shared objects.
-- Shared arrays have a null [[Prototype]].
-- Shared arrays do not have a `.constructor` property.
+- Shared arrays have a realm-local [[Prototype]] which has a complement of helper functions.
 - The shared array constructor has `[Symbol.hasInstance]` to support `instanceof`.
 
 Shared fixed-length arrays do not need novel syntax. For brevity of presentation, examples are given using the `SharedFixedArray` constructor.
@@ -126,15 +134,11 @@ Just like the struct example, above program is permitted to print out any interl
 - worker worker
 - worker main
 
-### Attaching behavior to shared structs
-
-This is an involved topic. See [ATTACHING-BEHAVIOR.md](ATTACHING-BEHAVIOR.md).
-
 ### Synchronization primitives
 
 Non-recursive mutexes and conditional variables are well-understood synchronization primitives. Structured data sharing are well served by these higher-level synchronization primitives beyond `Atomics.wait` and `Atomics.notify`.
 
-Pending future work on method and code sharing, mutexes and conditional variables are currently proposed as opaque, prototypeless shared objects to be used with static methods.
+Mutexes and conditional variables are currently proposed as shared objects with realm-local [[Prototype]]s.
 
 Minimal examples below.
 
@@ -145,14 +149,14 @@ let mutex = new Atomics.Mutex;
 // This would block the current agent if the lock is held
 // by another thread. This cannot be used on the agents
 // whose [[CanBlock]] is false.
-Atomics.Mutex.lock(mutex, function runsUnderLock() {
+mutex.lock(function runsUnderLock() {
   // Do critical section stuff
 });
 
 // tryLock is like lock but returns true if the lock was acquired
 // without blocking, and false is the lock is held by another
 // thread.
-Atomics.Mutex.tryLock(mutex, function runsUnderLock() {
+mutex.tryLock(runsUnderLock() {
   // Do critical section stuff
 });
 ```
@@ -160,29 +164,29 @@ Atomics.Mutex.tryLock(mutex, function runsUnderLock() {
 ```javascript
 let cv = new Atomics.Condition;
 
-Atomics.Mutex.lock(mutex, () => {
+mutex.lock(() => {
   // This blocks the current agent, and cannot be used on the agents
   // whose [[CanBlock]] is false. The passed in mutex must be locked.
-  Atomics.Condition.wait(cv, mutex);
+  cv.wait(cv, mutex);
 });
 
 // Waiters can notified with a count. A count of undefined or
 // +Infinity means "all waiters".
 let count = 1;
-let numWaitersWokenUp = Atomics.Condition.notify(cv, count);
+let numWaitersWokenUp = cv.notify(count);
 ```
 
 #### Extending `Atomics.Mutex` to support `using`
 
 The [Explicit Resource Management](https://github.com/tc39/proposal-explicit-resource-management) proposal adds `using` declarations that perform lexically scoped resource management. The `Atomics.Mutex` API can be extended to better support `using`. For example,
 
-- `Atomics.Mutex.lock(mutex)` can be overloaded to lock `mutex`
-- `Atomics.Mutex.unlock(mutex)` can be added
+- `mutex.lock()` can be overloaded to lock `mutex`
+- `mutex.unlock()` can be added
 - The `[Symbol.dispose]` own property can be added to all `Atomics.Mutex` instances
 
 #### Asynchronous locking and waiting
 
-See [ASYNC-LOCKING-WAITING.md](ASYNC-LOCKING-WAITING.md) for `lockAsync` and `waitAsync`.
+Asynchronous locking is planned upcoming work but is out of scope of this proposal. See [ASYNC-LOCKING-WAITING.md](ASYNC-LOCKING-WAITING.md) for `lockAsync` and `waitAsync`.
 
 ## Motivation and requirements
 
@@ -192,7 +196,7 @@ This proposal seeks to enable more shared memory parallelism for a more parallel
 
 The two design principles that this proposal follows are:
 1. Syntax that looks atomic ought to be atomic. (For example, the dot operator on shared structs should only access an existing field and does not tear.)
-1. There are no references from shared objects to non-shared objects. The shared and non-shared heaps are conceptually separate, with references only going one way.
+1. There are no references from shared objects to non-shared objects. The shared and non-shared heaps are conceptually separate, with direct references only going one way.
 
 ### WasmGC interoperability
 
@@ -222,7 +226,9 @@ This proposal does not intend to explore sophisticated type and runtime guard sy
 
 This proposal does not intend to explore the space of overlaying structured views on binary data in an `ArrayBuffer`. This is a requirement arising from the desire for WasmGC integration, and WasmGC objects are similarly opaque.
 
-Structured overlays are fundamentally about aliasing memory, which we feel is both a different problem domain and sufficiently solvable today in userland. For example, see [buffer-backed objects](https://github.com/GoogleChromeLabs/buffer-backed-object).
+Structured overlays are fundamentally about aliasing memory, which we feel is both a different problem domain, has significant performance downsides, and sufficiently solvable today in userland. For example, see [buffer-backed objects](https://github.com/GoogleChromeLabs/buffer-backed-object).
+
+Notably, structured overlays in JavaScript essentially involves allocating unshared wrappers *per agent*. If an application has shared state with a complex structure, such as a large object graph, recreating that structure via a set of wrappers per agent negates the memory use benefits of *shared* memory. Structured overlays would work for specific application architectures where the structure of the shared state itself is simple, like a byte buffer.
 
 ## Proposal
 
@@ -232,35 +238,39 @@ This proposal can be developed with or without novel syntax. It is presented wit
 
 Plain structs are declared with the contextual `struct` keyword in front of a class declaration.
 
-`struct class` expressions parse the same as plain `class` expressions.
+`struct` expressions parse the same as plain `class` expressions.
 
-During evaluation of a `struct class` expression, the following checks are performed.
-- If there is an `extends` clause and the superclass is not a `struct class`, throw a `TypeError`
+During evaluation of a `struct` expression, the following checks are performed.
+- If there is an `extends` clause and the superclass is not a `struct`, throw a `TypeError`
 
-When a `struct class` constructor is invoked, it creates instances with the following properties:
+When a `struct` constructor is invoked, it creates instances with the following properties:
 - All instance fields, including those from any superclasses, are defined and initialized to `undefined` before the newly constructed instance escapes to the constructor function (aka "one-shot")
 - Instances are sealed
-- Instances' [[Prototype]] slot is immutable after initialization
+- Instances' [[Prototype]] slot is immutable after construction
 
 ### Shared structs
 
 Shared structs are declared with the contextual `shared struct` keywords in front of a class declaration. Intuitively, they behave as very restricted structs.
 
-`shared struct class` expressions throw an early error if the following forms are encountered.
+A shared struct can declare itself to have a realm-local [[Prototype]] with the incantation `with nonshared prototype`. See [ATTACHING-BEHAVIOR.md](ATTACHING-BEHAVIOR.md).
+
+A shared struct can declare its shape to be auto-correlated across realms with the incantation `with registered`. See [ATTACHING-BEHAVIOR.md](ATTACHING-BEHAVIOR.md).
+
+`shared struct` expressions throw an early error if it does not have a realm-local [[Prototype]] and the following forms are encountered.
 - method
 - getter
 - setter
 - field initializers
 
-During evaluation of a `struct class` expression, the following checks are performed.
-- If there is an `extends` clause and the superclass is not a `shared struct class`, throw a `TypeError`
+During evaluation of a `shared struct` expression, the following checks are performed.
+- If the expression does not have a realm-local [[Prototype]], there is an `extends` clause, and the superclass is not a `shared struct`, throw a `TypeError`
 
-When a `struct class` constructor is invoked, it creates instances with the following properties:
+When a `shared struct` constructor is invoked, it creates instances with the following properties:
 - All instance fields are defined and initialized to `undefined` before the newly constructed instance escapes to the constructor function (aka "one-shot")
 - Constructors have `[Symbol.hasInstance]` to support `instanceof`
 - Instances are sealed
-- Instances' [[Prototype]] slot contains null
-- Instances do not have a `.constructor` property
+- Instances' [[Prototype]] slot contains either null or a realm-local object, depending on whether it was declared as having a realm-local prototype
+- Instances do not have a `.constructor` property if they do not have a realm-local prototype
 - Instances are shared with instead of copied to other agents
 - Instances' identities are preserved when communicated between agents
 - When a value is assigned to an instance field, if it is neither a primitive nor a shared object or is a `Symbol`, throw a `TypeError`
@@ -279,8 +289,7 @@ Note that the arithmetic `Atomics` methods like `Atomics.add` are not included b
 Shared fixed-length arrays are constructed using the `SharedFixedArray(len)` constructor. They are considered shared objects.
 - Constructors have `[Symbol.hasInstance]` to support `instanceof`
 - Instances are sealed
-- Instances' [[Prototype]] slot contains null
-- Instances do not have a `.constructor` property
+- Instances have a realm-local [[Prototype]] with TBD helper methods
 - Instances have an immutable `.length` property
 - Instances are shared with instead of copied to other agents
 - Instances' identities are preserved when communicated between agents
@@ -303,11 +312,9 @@ Non-recursive mutexes are constructed using the `Atomics.Mutex` constructor. The
 - Instances have no properties
 - Instances are shared with instead of copied to other agents
 - Instances' identities are preserved when communicated between agents
-
-The following static methods exist on `Atomics.Mutex`
-- `Atomics.Mutex.lock(mutex, funToRunUnderLock)`: Acquire `mutex` by blocking. Once acquired, invoke `funToRunUnderLock`, then release the lock.
-- `Atomics.Mutex.lockAsync(mutex, funToRunUnderLock)`: Acquire `mutex` asynchronously. Once acquired, enqueue `funToRunUnderLock` as a task to run. Release the lock after the enqueued task is finished.
-- `Atomics.Mutex.tryLock(mutex, funToRunUnderLock)`: Try to acquire `mutex`, returning `undefined` if already locked. Once acquired, invoke `funToRunUnderLock`, then release the lock.
+- Instances have a realm-local [[Prototype]] with the following methods
+    - `lock(funToRunUnderLock, [ timeout ])`: Acquire `mutex` by blocking for a maximum of `timeout` milliseconds. Once acquired, invoke `funToRunUnderLock`, then release the lock. The `timeout` parameter defaults to `Infinity`.
+    - `tryLock(funToRunUnderLock)`: Try to acquire `mutex`, returning `undefined` if already locked. Once acquired, invoke `funToRunUnderLock`, then release the lock.
 
 ### `Atomics.Condition`
 
@@ -317,11 +324,9 @@ Condition variables are constructed using the `Atomics.Condition` constructor. T
 - Instances have no properties
 - Instances are shared with instead of copied to other agents
 - Instances' identities are preserved when communicated between agents
-
-The following static methods exist on `Atomics.Condition`
-- `Atomics.Condition.wait(cv, mutex, [ timeout ])`: Block the agent until `cv` is notified or until `timeout` milliseconds have passed. `mutex` must be locked. It is atomically released when the agent blocks and is reacquired after notification. `timeout` defaults to `Infinity`. Throw a `TypeError` of the agent's [[CanBlock]] is false.
-- `Atomics.Condition.waitAsync(cv, mutex, [ timeout ])`: Returns a promise that is fulfilled when `cv` is notified or until `timeout` milliseconds have passed. `mutex` must be locked. It is released after the promise is constructed.
-- `Atomics.Condition.notify(cv, count)`: Notify `count` number of `cv`'s waiters. A `count` of `Infinity` notifies all waiters.
+- Instances have a relam-local [[Prototype]] with the following methods
+    - `wait(cv, mutex, [ timeout ])`: Block the agent until `cv` is notified or until `timeout` milliseconds have passed. `mutex` must be locked. It is atomically released when the agent blocks and is reacquired after notification. `timeout` defaults to `Infinity`. Throw a `TypeError` of the agent's [[CanBlock]] is false.
+    - `notify(cv, count)`: Notify `count` number of `cv`'s waiters. A `count` of `Infinity` notifies all waiters.
 
 ## Implementation guidance
 
@@ -355,9 +360,7 @@ Engines can also choose to implement synchronization primitives entirely in user
 
 Code sharing is not part of this proposal and thus shared structs cannot have truly shared methods. This may prove to be unergonomic enough that we bring code sharing in scope. Doing so would likely require a new kind of function cannot close over non-shared objects.
 
-This proposal future-proofs by having shared struct instances throw when touching the [[Prototype]] slot. This will be relaxed with a future proposal when code sharing becomes possible.
-
-See [CODE-SHARING-IDEAS.md](CODE-SHARING-IDEAS.md) for a collection of ideas.
+This proposal instead proposes to use existing unshared functions and to bridge the two worlds by having realm-local [[Prototype]]s.
 
 ### Typed fields
 
