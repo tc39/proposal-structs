@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<meta charset="utf8">
+<pre class="metadata">
+title: JavaScript Structs
+stage: 1
+contributors: Shu-yu Guo
+markEffects: true
+</pre>
+
+<emu-intro id="intro">
+  <h1>Structs, Shared Structs, Unsafe Blocks, and Synchronization Primitives</h1>
+  <p>We extend the JS language with fixed-layout objects both for unshared and shared uses, unsafe blocks to syntactically limit the scope of where racy accesses may be performed, and high-level synchronization primitive APIs. This spec draft is organized by logical feature.</p>
+</emu-intro>
+
+<emu-clause id="sec-structs">
+  <h1>Structs</h1>
+  <p>Structs are fixed-layout objects. They are constructed with the integrity level ~sealed~, and have all declared fields initialized before the instance is made available to user code. They may only extend other structs. Their instance methods are non-generic, and throw *TypeError* exceptions when the *this* value is not either an instance of the struct declaration within which the method was declared, or a subclass of that struct declaration.</p>
+
+  <emu-clause id="sec-structs-syntax-and-eval">
+    <h1>Syntax</h1>
+
+    <ins class="block">
+    <emu-grammar type="definition">
+      StructDeclaration[Yield, Await, Default] :
+        `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await] StructTail[?Yield, ?Await]
+        [+Default] `struct` [no LineTerminator here] StructTail[?Yield, ?Await]
+
+      StructExpression[Yield, Await] :
+        `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await]? StructTail[?Yield, ?Await]
+
+      StructTail[Yield, Await] :
+        ClassHeritage[?Yield, ?Await]? `{` StructBody[?Yield, ?Await]? `}`
+
+      StructBody[Yield, Await] :
+        ClassElementList[?Yield, ?Await]
+    </emu-grammar>
+    <emu-note>
+      <p>A struct definition is always strict mode code.</p>
+    </emu-note>
+
+    <emu-clause id="sec-struct-definitions-static-semantics-early-errors">
+      <h1>Static Semantics: Early Errors</h1>
+      <emu-grammar>StructBody : ClassElementList</emu-grammar>
+      <ul>
+        <li>
+          It is a SyntaxError if PrototypePropertyNameList of |ClassElementList| contains more than one occurrence of *"constructor"*.
+        </li>
+        <li>
+          It is a Syntax Error if the PrivateBoundIdentifiers of |ClassElementList| contains any duplicate entries, unless the name is used once for a getter and once for a setter and in no other entries, and the getter and setter are either both static or both non-static.
+        </li>
+      </ul>
+    </emu-clause>
+
+    <emu-clause id="sec-definestructfield" type="abstract operation">
+      <h1>
+        DefineStructField (
+          _receiver_: an Object,
+          _fieldRecord_: a ClassFieldDefinition Record,
+        ): ~unused~
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Let _fieldName_ be _fieldRecord_.[[Name]].
+        1. If _fieldName_ is a Private Name, then
+          1. Perform ! PrivateFieldAdd(_receiver_, _fieldName_, *undefined*).
+        1. Else,
+          1. Assert: _fieldName_ is a property key.
+          1. Perform ! DefinePropertyOrThrow(_receiver_, _fieldName_, PropertyDescriptor { [[Value]]: *undefined*, [[Writable]]: *true*, [[Enumerable]]: *true*, [[Configurable]]: *false* }).
+        1. Return ~unused~.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-initializestructinstancefieldsandbrands" type="abstract operation">
+      <h1>
+        InitializeStructInstanceFieldsAndBrand (
+          _receiver_: an Object,
+          _constructor_: an ECMAScript function object,
+        ): ~unused~
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. If _constructor_.[[ConstructorKind]] is ~derived~, then
+          1. Let _parent_ be ! _constructor_.[[GetPrototypeOf]]().
+          1. Perform InitializeStructInstanceFieldsAndBrand(_receiver_, _parent_).
+        1. If _constructor_ has a [[StructBrand]] internal slot, then
+          1. Prepend _constructor_.[[StructBrand]] to _receiver_.[[StructBrands]].
+          1. NOTE: Shared Struct constructors do not have a [[StructBrand]] internal slot because per-Realm prototypes is currently an open design question and are not included in this draft. Without per-Realm prototypes, Shared Structs cannot have methods, and there are no users of Shared Struct brands.
+        1. Let _methods_ be the value of _constructor_.[[PrivateMethods]].
+        1. For each PrivateElement _method_ of _methods_, do
+          1. Perform ! PrivateMethodOrAccessorAdd(_receiver_, _method_).
+        1. Let _fields_ be the value of _constructor_.[[Fields]].
+        1. For each element _fieldRecord_ of _fields_, do
+          1. Perform DefineStructField(_receiver_, _fieldRecord_).
+        1. Return ~unused~.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-runfieldinitializer" type="abstract operation">
+      <h1>
+        RunFieldInitializer (
+          _receiver_: an Object,
+          _fieldRecord_: a ClassFieldDefinition Record,
+        ): either a normal completion containing ~unused~ or a throw completion
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Let _fieldName_ be _fieldRecord_.[[Name]].
+        1. Let _initializer_ be _fieldRecord_.[[Initializer]].
+        1. If _initializer_ is not ~empty~, then
+          1. Let _initValue_ be ? Call(_initializer_, _receiver_).
+          1. If _fieldName_ is a Private Name, then
+            1. Perform ? PrivateSet(_receiver_, _fieldName_, _initValue_).
+          1. Else,
+            1. Assert: _fieldName_ is a property key.
+            1. Perform ? DefinePropertyOrThrow(_receiver_, _fieldName_, PropertyDescriptor { [[Value]]: _initValue_, [[Writable]]: *true*, [[Enumerable]]: *true*, [[Configurable]]: *false* }).
+        1. Return ~unused~.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-runstructinstancefieldinitializers" type="abstract operation">
+      <h1>
+        RunStructInstanceFieldInitializers (
+          _receiver_: an Object,
+          _constructor_: an ECMAScript function object,
+        ): either a normal completion containing ~unused~ or a throw completion
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. If _constructor_.[[ConstructorKind]] is ~derived~, then
+          1. Let _parent_ be ! _constructor_.[[GetPrototypeOf]]().
+          1. Perform ? RunStructInstanceFieldInitializers(_receiver_, _parent_).
+        1. Let _fields_ be the value of _constructor_.[[Fields]].
+        1. For each element _fieldRecord_ of _fields_, do
+          1. Perform ? RunFieldInitializer(_receiver_, _fieldRecord_).
+        1. Return ~unused~.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-runtime-semantics-structdefinitionevaluation" type="sdo">
+      <h1>
+        Runtime Semantics: StructDefinitionEvaluation (
+          _structBinding_: a String or *undefined*,
+          _structName_: a property key,
+        ): either a normal completion containing a function object or an abrupt completion
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-grammar>StructTail : ClassHeritage? `{` StructBody? `}`</emu-grammar>
+      <emu-alg>
+        1. Let _env_ be the LexicalEnvironment of the running execution context.
+        1. Let _structEnv_ be NewDeclarativeEnvironment(_env_).
+        1. If _structBinding_ is not *undefined*, then
+          1. Perform ! _structEnv_.CreateImmutableBinding(_structBinding_, *true*).
+        1. Let _outerPrivateEnvironment_ be the running execution context's PrivateEnvironment.
+        1. Let _classPrivateEnvironment_ be NewPrivateEnvironment(_outerPrivateEnvironment_).
+        1. If |StructBody| is present, then
+          1. For each String _dn_ of the PrivateBoundIdentifiers of |StructBody|, do
+            1. If _classPrivateEnvironment_.[[Names]] contains a Private Name _pn_ such that _pn_.[[Description]] is _dn_, then
+              1. Assert: This is only possible for getter/setter pairs.
+            1. Else,
+              1. Let _name_ be a new Private Name whose [[Description]] is _dn_.
+              1. Append _name_ to _classPrivateEnvironment_.[[Names]].
+        1. If |ClassHeritage| is not present, then
+          1. Let _protoParent_ be %Object.prototype%.
+          1. Let _constructorParent_ be %Function.prototype%.
+        1. Else,
+          1. Set the running execution context's LexicalEnvironment to _structEnv_.
+          1. NOTE: The running execution context's PrivateEnvironment is _outerPrivateEnvironment_ when evaluating |ClassHeritage|.
+          1. Let _superclassRef_ be Completion(Evaluation of |ClassHeritage|).
+          1. Set the running execution context's LexicalEnvironment to _env_.
+          1. Let _superclass_ be ? GetValue(? _superclassRef_).
+          1. If _superclass_ is *null*, then
+            1. Let _protoParent_ be *null*.
+            1. Let _constructorParent_ be %Function.prototype%.
+          1. Else if _superclass_ does not have a [[IsStructConstructor]] internal slot, then
+            1. Throw a *TypeError* exception.
+          1. Else,
+            1. Let _protoParent_ be ? Get(_superclass_, *"prototype"*).
+            1. If _protoParent_ is not an Object and _protoParent_ is not *null*, throw a *TypeError* exception.
+            1. Let _constructorParent_ be _superclass_.
+        1. Let _proto_ be OrdinaryObjectCreate(_protoParent_, « [[StructBrand]] »).
+        1. Let _structSerial_ be the value of GlobalStructSerial.
+        1. Set _proto_.[[StructBrand]] to _structSerial_.
+        1. Set GlobalStructSerial to GlobalStructSerial + 1.
+        1. NOTE: GlobalStructSerial is a monotonically increasing integer that is globally available. It is shared by all realms. Prior to the evaluation of any ECMAScript code, it is initialized to 0.
+        1. NOTE: Structs have one-shot construction, with the user-defined "constructor" method performing post-construction initialization. By the time ECMAScript code has access to a struct instance, it already has all of its declared fields as own properties.
+        1. Set the running execution context's LexicalEnvironment to _structEnv_.
+        1. Set the running execution context's PrivateEnvironment to _classPrivateEnvironment_.
+        1. If |StructBody| is not present, let _initializerParseNode_ be ~empty~.
+        1. Else, let _initializerParseNode_ be ConstructorMethod of |StructBody|.
+        1. If _initializerParseNode_ is ~empty~, then
+          1. Let _initializer_ be ~empty~.
+        1. Else,
+          1. Let _initializerInfo_ be ? DefineMethod of _initializerParseNode_ with arguments _proto_ and _constructorParent_.
+          1. Let _initializer_ be _initializerInfo_.[[Closure]].
+          1. Perform SetFunctionName(_initializer_, _structName_).
+        1. Let _constructor_ be a new Abstract Closure with no parameters that captures _initializer_ and _structSerial_ and performs the following steps when called:
+          1. Let _args_ be the List of arguments that was passed to this function by [[Call]] or [[Construct]].
+          1. Let _F_ be the active function object.
+          1. If NewTarget is not _F_, throw a *TypeError* exception.
+          1. Let _result_ be ? OrdinaryCreateFromConstructor(NewTarget, *"%Object.prototype%"*, « [[StructBrands]] »).
+          1. Set _result_.[[StructBrands]] to « _structSerial_ ».
+          1. Perform InitializeStructInstanceFieldsAndBrand(_result_, _F_).
+          1. Perform ! _result_.[[PreventExtensions]]().
+          1. Assert: ! TestIntegrityLevel(_result_, ~sealed~) is *true*.
+          1. Perform ? RunStructInstanceFieldInitializers(_result_, _F_).
+          1. If _initializer_ is not ~empty~, then
+            1. Perform ? Call(_initializer_, _result_).
+          1. Return _result_.
+        1. Let _F_ be CreateBuiltinFunction(_constructor_, 0, structName, « [[ConstructorKind]], [[SourceText]], [[StructBrand]], [[StructInitializer]], [[IsStructConstructor]] », the current Realm Record, _constructorParent_).
+        1. Perform MakeConstructor(_F_, *false*, _proto_).
+        1. If |ClassHeritage| is present, set _F_.[[ConstructorKind]] to ~derived~.
+        1. Set _F_.[[StructInitializer]] to _initializer_.
+        1. Set _F_.[[StructBrand]] to _structSerial_.
+        1. Set _F_.[[IsStructConstructor]] to *true*.
+        1. If |StructBody| is not present, let _elements_ be a new empty List.
+        1. Else, let _elements_ be NonConstructorElements of |StructBody|.
+        1. Let _instancePrivateMethods_ be a new empty List.
+        1. Let _staticPrivateMethods_ be a new empty List.
+        1. Let _instanceFields_ be a new empty List.
+        1. Let _staticElements_ be a new empty List.
+        1. For each |ClassElement| _e_ of _elements_, do
+          1. If IsStatic of _e_ is *false*, then
+            1. Let _element_ be Completion(ClassElementEvaluation of _e_ with argument _proto_).
+          1. Else,
+            1. Let _element_ be Completion(ClassElementEvaluation of _e_ with argument _F_).
+          1. If _element_ is an abrupt completion, then
+            1. Set the running execution context's LexicalEnvironment to _env_.
+            1. Set the running execution context's PrivateEnvironment to _outerPrivateEnvironment_.
+            1. Return ? _element_.
+          1. Set _element_ to ! _element_.
+          1. If _element_ is a PrivateElement, then
+            1. Assert: _element_.[[Kind]] is either ~method~ or ~accessor~.
+            1. If IsStatic of _e_ is *false*, let _container_ be _instancePrivateMethods_.
+            1. Else, let _container_ be _staticPrivateMethods_.
+            1. If _container_ contains a PrivateElement _pe_ such that _pe_.[[Key]] is _element_.[[Key]], then
+              1. Assert: _element_.[[Kind]] and _pe_.[[Kind]] are both ~accessor~.
+              1. If _element_.[[Get]] is *undefined*, then
+                1. Let _combined_ be PrivateElement { [[Key]]: _element_.[[Key]], [[Kind]]: ~accessor~, [[Get]]: _pe_.[[Get]], [[Set]]: _element_.[[Set]] }.
+              1. Else,
+                1. Let _combined_ be PrivateElement { [[Key]]: _element_.[[Key]], [[Kind]]: ~accessor~, [[Get]]: _element_.[[Get]], [[Set]]: _pe_.[[Set]] }.
+              1. Replace _pe_ in _container_ with _combined_.
+            1. Else,
+              1. Append _element_ to _container_.
+          1. Else if _element_ is a ClassFieldDefinition Record, then
+            1. If IsStatic of _e_ is *false*, append _element_ to _instanceFields_.
+            1. Else, append _element_ to _staticElements_.
+          1. Else if _element_ is a ClassStaticBlockDefinition Record, then
+            1. Append _element_ to _staticElements_.
+        1. Set the running execution context's LexicalEnvironment to _env_.
+        1. If _structBinding_ is not *undefined*, then
+          1. Perform ! _structEnv_.InitializeBinding(_structBinding_, _F_).
+        1. Set _F_.[[PrivateMethods]] to _instancePrivateMethods_.
+        1. Set _F_.[[Fields]] to _instanceFields_.
+        1. For each PrivateElement _method_ of _staticPrivateMethods_, do
+          1. Perform ! PrivateMethodOrAccessorAdd(_F_, _method_).
+        1. For each element _elementRecord_ of _staticElements_, do
+          1. If _elementRecord_ is a ClassFieldDefinition Record, then
+            1. Let _result_ be Completion(DefineField(_F_, _elementRecord_)).
+          1. Else,
+            1. Assert: _elementRecord_ is a ClassStaticBlockDefinition Record.
+            1. Let _result_ be Completion(Call(_elementRecord_.[[BodyFunction]], _F_)).
+          1. If _result_ is an abrupt completion, then
+            1. Set the running execution context's PrivateEnvironment to _outerPrivateEnvironment_.
+            1. Return ? _result_.
+        1. Set the running execution context's PrivateEnvironment to _outerPrivateEnvironment_.
+        1. Perform ! SetIntegrityLevel(_proto_, ~sealed~).
+        1. Return _F_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-runtime-semantics-bindingstructdeclarationevaluation" type="sdo">
+      <h1>Runtime Semantics: BindingStructDeclarationEvaluation ( ): either a normal completion containing a function object or an abrupt completion</h1>
+      <dl class="header">
+      </dl>
+      <emu-grammar>StructDeclaration : `struct` BindingIdentifier StructTail</emu-grammar>
+      <emu-alg>
+        1. Let _structName_ be the StringValue of |BindingIdentifier|.
+        1. Let _value_ be ? StructDefinitionEvaluation of |StructTail| with arguments _structName_ and _structName_.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructDeclaration|.
+        1. Let _env_ be the running execution context's LexicalEnvironment.
+        1. Perform ? InitializeBoundName(_structName_, _value_, _env_).
+        1. Return _value_.
+      </emu-alg>
+      <emu-grammar>StructDeclaration : `struct` StructTail</emu-grammar>
+      <emu-alg>
+        1. Let _value_ be ? StructDefinitionEvaluation of |StructTail| with arguments *undefined* and *"default"*.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructDeclaration|.
+        1. Return _value_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-struct-definitions-runtime-semantics-evaluation" type="sdo">
+      <h1>Runtime Semantics: Evaluation</h1>
+      <emu-grammar>StructDeclaration : `struct` BindingIdentifier StructTail</emu-grammar>
+      <emu-alg>
+        1. Perform ? BindingStructDeclarationEvaluation of this |StructDeclaration|.
+        1. Return ~empty~.
+      </emu-alg>
+      <emu-grammar>StructExpression : `struct` StructTail</emu-grammar>
+      <emu-alg>
+        1. Let _value_ be ? StructDefinitionEvaluation of |StructTail| with arguments *undefined* and *""*.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
+        1. Return _value_.
+      </emu-alg>
+      <emu-grammar>StructExpression : `struct` BindingIdentifier StructTail</emu-grammar>
+      <emu-alg>
+        1. Let _structName_ be StringValue of |BindingIdentifier|.
+        1. Let _value_ be ? StructDefinitionEvaluation of |StructTail| with arguments _structName_ and _structName_.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
+        1. Return _value_.
+      </emu-alg>
+    </emu-clause>
+    </ins>
+  </emu-clause>
+
+  <emu-clause id="sec-struct-method-exotic-objects">
+    <h1>Struct Method Exotic Objects</h1>
+    <ins class="block">
+
+    <p>A struct method exotic object is an exotic object that wraps another method. A struct method exotic object is callable (it has a [[Call]] internal method). Calling a struct method exotic object checks if the *this* value is a struct instance constructed by the same struct declaration that defined the method, then in calls its wrapped method.</p>
+
+    <p>An object is a <dfn id="struct-method-exotic-object" variants="struct method exotic objects">struct method exotic object</dfn> if its [[Call]] internal method uses the following implementation, and its other essential internal methods use the definitions found in <emu-xref href="#sec-ordinary-object-internal-methods-and-internal-slots"></emu-xref>. These methods are installed in StructMethodCreate.</p>
+
+    <p>Struct method exotic objects do not have the internal slots of ECMAScript function objects listed in <emu-xref href="#table-internal-slots-of-ecmascript-function-objects"></emu-xref>. Instead they have the internal slots listed in <emu-xref href="#table-internal-slots-of-struct-method-exotic-objects"></emu-xref>, in addition to [[Prototype]] and [[Extensible]].</p>
+    <emu-table id="table-internal-slots-of-struct-method-exotic-objects" caption="Internal Slots of Struct Method Exotic Objects">
+      <table>
+        <thead>
+          <tr>
+            <th>
+              Internal Slot
+            </th>
+            <th>
+              Type
+            </th>
+            <th>
+              Description
+            </th>
+          </tr>
+        </thead>
+        <tr>
+          <td>
+            [[BoundTargetMethod]]
+          </td>
+          <td>
+            a callable Object
+          </td>
+          <td>
+            The wrapped method object.
+          </td>
+        </tr>
+      </table>
+    </emu-table>
+
+    <emu-clause id="sec-struct-method-exotic-objects-call-thisargument-argumentslist" type="internal method">
+      <h1>
+        [[Call]] (
+          _thisArgument_: an ECMAScript language value,
+          _argumentsList_: a List of ECMAScript language values,
+        ): either a normal completion containing an ECMAScript language value or a throw completion
+      </h1>
+      <dl class="header">
+        <dt>for</dt>
+        <dd>a struct method exotic object _F_</dd>
+      </dl>
+      <emu-alg>
+        1. Let _target_ be _F_.[[BoundTargetMethod]].
+        1. Let _homeObject_ be _target_.[[HomeObject]].
+        1. Assert: _homeObject_ is not *undefined*.
+        1. Assert: _homeObject_ has a [[StructBrand]] internal slot.
+        1. If _thisArgument_ is not an Object, throw a *TypeError* exception.
+        1. If _thisArgument_ does not have a [[StructBrands]] internal slot, throw a *TypeError* exception.
+        1. If _thisArgument_.[[StructBrands]] does not contain _homeObject_.[[StructBrand]], throw a *TypeError* exception.
+        1. Return ? Call(_target_, _thisArgument_, argumentsList_).
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-structmethodcreate" type="abstract operation">
+      <h1>
+        StructMethodCreate (
+          _targetMethod_: a function object,
+        ): either a normal completion containing a function object or a throw completion
+      </h1>
+      <dl class="header">
+        <dt>description</dt>
+        <dd>It is used to specify the creation of new struct method exotic objects.</dd>
+      </dl>
+      <emu-alg>
+        1. Let _proto_ be ? <emu-meta effects="user-code">_targetMethod_.[[GetPrototypeOf]]</emu-meta>().
+        1. Let _internalSlotsList_ be the list-concatenation of « [[Prototype]], [[Extensible]] » and the internal slots listed in <emu-xref href="#table-internal-slots-of-struct-method-exotic-objects"></emu-xref>.
+        1. Let _obj_ be MakeBasicObject(_internalSlotsList_).
+        1. Set _obj_.[[Prototype]] to _proto_.
+        1. Set _obj_.[[Call]] as described in <emu-xref href="#sec-struct-method-exotic-objects-call-thisargument-argumentslist"></emu-xref>.
+        1. Set _obj_.[[BoundTargetMethod]] to _targetMethod_.
+        1. Return _obj_.
+      </emu-alg>
+    </emu-clause>
+    </ins>
+  </emu-clause>
+
+  <emu-clause id="changes-to-language-expressions">
+    <h1>Changes to ECMAScript Language: Expressions</h1>
+    <emu-clause id="sec-super-keyword-runtime-semantics-evaluation" type="sdo">
+      <h1>Runtime Semantics: Evaluation</h1>
+      <emu-grammar>SuperCall : `super` Arguments</emu-grammar>
+        <emu-alg>
+          1. Let _newTarget_ be GetNewTarget().
+          1. Assert: _newTarget_ is an Object.
+          1. Let _func_ be GetSuperConstructor().
+          1. Let _argList_ be ? ArgumentListEvaluation of |Arguments|.
+          1. If IsConstructor(_func_) is *false*, throw a *TypeError* exception.
+          1. <ins>If _func_ has a [[StructInitializer]] internal slot, then</ins>
+            1. <ins>If _func_.[[StructInitializer]] is not ~empty~, then</ins>
+              1. <ins>Let _envRec_ be GetThisEnvironment().</ins>
+              1. <ins>Let _thisValue_ be _envRec_.GetThisBinding().</ins>
+              1. <ins>Return ? Call(_func_.[[StructInitializer]], _thisValue_).</ins>
+            1. <ins>Else,</ins>
+              1. <ins>Return *undefined*.</ins>
+          1. Let _result_ be ? Construct(_func_, _argList_, _newTarget_).
+          1. Let _thisER_ be GetThisEnvironment().
+          1. Perform ? _thisER_.BindThisValue(_result_).
+          1. Let _F_ be _thisER_.[[FunctionObject]].
+          1. Assert: _F_ is an ECMAScript function object.
+          1. Perform ? InitializeInstanceElements(_result_, _F_).
+          1. Return _result_.
+        </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="changes-to-language-functions-and-classes">
+    <h1>Changes to ECMAScript Language: Functions and Classes</h1>
+    <emu-clause id="sec-runtime-semantics-definemethod" type="sdo">
+      <h1>
+        Runtime Semantics: DefineMethod (
+          _object_: an Object,
+          optional _functionPrototype_: an Object,
+        ): either a normal completion containing a Record with fields [[Key]] (a property key) and [[Closure]] (an ECMAScript function object) or an abrupt completion
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-grammar>MethodDefinition : ClassElementName `(` UniqueFormalParameters `)` `{` FunctionBody `}`</emu-grammar>
+      <emu-alg>
+        1. Let _propKey_ be ? Evaluation of |ClassElementName|.
+        1. Let _env_ be the running execution context's LexicalEnvironment.
+        1. Let _privateEnv_ be the running execution context's PrivateEnvironment.
+        1. If _functionPrototype_ is present, then
+          1. Let _prototype_ be _functionPrototype_.
+        1. Else,
+          1. Let _prototype_ be %Function.prototype%.
+        1. Let _sourceText_ be the source text matched by |MethodDefinition|.
+        1. Let _closure_ be OrdinaryFunctionCreate(_prototype_, _sourceText_, |UniqueFormalParameters|, |FunctionBody|, ~non-lexical-this~, _env_, _privateEnv_).
+        1. Perform MakeMethod(_closure_, _object_).
+        1. <ins>If _object_ has a [[StructBrand]] internal slot, then</ins>
+          1. <ins>NOTE: Struct instance methods' home object have a [[StructBrand]] internal slot.</ins>
+          1. <ins>Set _closure_ to ? StructMethodCreate(_closure_).</ins>
+        1. Return the Record { [[Key]]: _propKey_, [[Closure]]: _closure_ }.
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-changes-to-modules">
+    <h1>Changes to Modules</h1>
+
+    <emu-grammar type="definition">
+      ExportDeclaration :
+        `export` ExportFromClause FromClause `;`
+        `export` NamedExports `;`
+        `export` VariableStatement[~Yield, +Await]
+        `export` Declaration[~Yield, +Await]
+        `export` `default` HoistableDeclaration[~Yield, +Await, +Default]
+        `export` `default` ClassDeclaration[~Yield, +Await, +Default]
+        <ins>`export` `default` StructDeclaration[~Yield, +Await, +Default]</ins>
+        `export` `default` [lookahead &notin; { `function`, `async` [no LineTerminator here] `function`, `class` }] AssignmentExpression[+In, ~Yield, +Await] `;`
+    </emu-grammar>
+
+    <emu-clause id="sec-exports-runtime-semantics-evaluation" type="sdo">
+      <h1>Runtime Semantics: Evaluation</h1>
+      <ins class="block">
+      <emu-grammar>ExportDeclaration : `export` `default` StructDeclaration</emu-grammar>
+      <emu-alg>
+        1. Let _value_ be ? BindingStructDeclarationEvaluation of |StructDeclaration|.
+        1. Let _structName_ be the sole element of the BoundNames of |StructDeclaration|.
+        1. If _structName_ is *"\*default\*"*, then
+          1. Let _env_ be the running execution context's LexicalEnvironment.
+          1. Perform ? InitializeBoundName(*"\*default\*"*, _value_, _env_).
+        1. Return ~empty~.
+      </emu-alg>
+      </ins>
+    </emu-clause>
+  </emu-clause>
+</emu-clause>
+
+<emu-clause id="sec-shared-structs">
+  <h1>Shared Structs</h1>
+
+  <emu-clause id="sec-shared-struct-exotic-objects">
+    <h1>Shared Struct Exotic Objects</h1>
+    <ins class="block">
+    <p>Shared Structs are fixed-layout exotic objects that can be shared across agents and be accessed in parallel from multiple agents. They are like structs with more restricted behaviour so as to be possible to be shared across agents. They cannot contain methods or private fields. Their fields can only hold primitives or other shared values. Accessing their fields is unordered by default and is governed by the memory model. Such accesses can be made sequentially consistent by using newly overloaded Atomics methods.</p>
+    <p>An object is a <dfn id="shared-struct-exotic-object" variants="Shared Structs">Shared Struct</dfn> if its [[GetOwnProperty]], [[DefineOwnProperty]], [[HasProperty]], [[Get]], [[Set]], and [[Delete]] internal methods use the definitions in this section, and its other essential internal methods use the definitions found in <emu-xref href="#sec-ordinary-object-internal-methods-and-internal-slots"></emu-xref>.</p>
+
+    <emu-clause id="sec-fictional-criticalsection">
+      <h1>Critical Section for Shared Struct Creation</h1>
+
+      <emu-clause id="sec-entersharedstructcreationcriticalsection" type="abstract operation">
+        <h1>
+          EnterSharedStructCreationCriticalSection (
+          ): ~unused~
+        </h1>
+        <dl class="header">
+        </dl>
+        <emu-alg>
+          1. Assert: The surrounding agent is not in the critical section for Shared Struct creation.
+          1. Wait until no agent is in the critical section for Shared Struct creation, then enter the critical section for Shared Struct creation (without allowing any other agent to enter).
+          1. Return ~unused~.
+        </emu-alg>
+      </emu-clause>
+
+      <emu-clause id="sec-leavesharedstructcreationcriticalsection" type="abstract operation">
+        <h1>
+          LeaveSharedStructCreationCriticalSection (
+          ): ~unused~
+        </h1>
+        <dl class="header">
+        </dl>
+        <emu-alg>
+          1. Assert: The surrounding agent is in the critical section for Shared Struct creation.
+          1. Leave the critical section for Shared Struct creation.
+          1. Return ~unused~.
+        </emu-alg>
+      </emu-clause>
+
+      <emu-note>
+        <p>This critical section is a specification semantic prescription of the memory model to prohibit the nondeterministic read in ReadSharedStructField from manifesting Shared Struct values that are partially initialized.</p>
+        <p>This critical section does not provide any ordering guarantees.</p>
+        <p>In implementations, this critical section is not needed. Implementations must not allow out-of-thin-air reads.</p>
+      </emu-note>
+    </emu-clause>
+
+    <emu-clause id="sec-readsharedstructfield" type="abstract operation">
+      <h1>
+        ReadSharedStructField (
+          _struct_: a Shared Struct,
+          _field_: a property key,
+          _order_: ~seq-cst~ or ~unordered~,
+        ): an ECMAScript language value
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Let _execution_ be the [[CandidateExecution]] field of the surrounding agent's Agent Record.
+        1. Let _eventsRecord_ be the Agent Events Record of _execution_.[[EventsRecords]] whose [[AgentSignifier]] is AgentSignifier().
+        1. Let _storage_ be SharedStructStorage { [[Struct]]: _struct_, [[Field]]: _field_ }.
+        1. Perform EnterSharedStructCreationCriticalSection().
+        1. Let _rawLanguageValue_ be a nondeterministically chosen ECMAScript language value such that CanBeSharedAcrossAgents(_rawLanguageValue_) is *true*.
+        1. Perform LeaveSharedStructCreationCriticalSection().
+        1. NOTE: In implementations, _rawLanguageValue_ is the result of a non-atomic or atomic read instruction on the underlying hardware. The nondeterminism is a semantic prescription of the memory model to describe observable behaviour of hardware with weak consistency.
+        1. Let _readEvent_ be ReadSharedMemory { [[Order]]: _order_, [[NoTear]]: *true*, [[Storage]]: _storage_ } to _eventsRecord_.[[EventList]].
+        1. Append _readEvent_ to _eventsRecord_.[[EventList]].
+        1. NOTE: Shared struct field accesses can never tear.
+        1. Append Chosen Value Record { [[Event]]: _readEvent_, [[ChosenValue]]: _rawLanguageValue_ } to _execution_.[[ChosenValues]].
+        1. Return _rawLanguageValue_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-writesharedstructfield" type="abstract operation">
+      <h1>
+        WriteSharedStructField (
+          _struct_: a Shared Struct,
+          _field_: a property key,
+          _value_: an ECMAScript language value,
+          _order_: ~seq-cst~, ~unordered~, or ~init~,
+        ): ~unused~
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Assert: CanBeSharedAcrossAgents(_value_) is *true*.
+        1. Let _execution_ be the [[CandidateExecution]] field of the surrounding agent's Agent Record.
+        1. Let _eventsRecord_ be the Agent Events Record of _execution_.[[EventsRecords]] whose [[AgentSignifier]] is AgentSignifier().
+        1. Let _storage_ be SharedStructStorage { [[Struct]]: _struct_, [[Field]]: _field_ }.
+        1. Append WriteSharedMemory { [[Order]]: _order_, [[NoTear]]: *true*, [[Storage]]: _storage_, [[Payload]]: _value_ } to _eventsRecord_.[[EventList]].
+        1. NOTE: Shared struct field accesses can never tear.
+        1. Return ~unused~.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-getownproperty" type="internal method">
+      <h1>
+        [[GetOwnProperty]] (
+          _P_: a property key,
+        ): a normal completion containing either a Property Descriptor or *undefined*
+      </h1>
+      <dl class="header">
+        <dt>for</dt>
+        <dd>a Shared Struct _O_</dd>
+      </dl>
+      <emu-alg>
+        1. If _O_ does not have an own property with key _P_, return *undefined*.
+        1. Let _D_ be a newly created Property Descriptor with no fields.
+        1. Let _X_ be _O_'s own property whose key is _P_.
+        1. Assert: _X_ is a data property.
+        1. Set _D_.[[Value]] to ReadSharedStructField(_O_, _P_, ~unordered~).
+        1. Set _D_.[[Writable]] to *false*.
+        1. Set _D_.[[Enumerable]] to *true*.
+        1. Set _D_.[[Configurable]] to *false*.
+        1. Return _D_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-defineownproperty" type="internal method">
+      <h1>
+        [[DefineOwnProperty]] (
+          _P_: a property key,
+          _Desc_: a Property Descriptor,
+        ): either a normal completion containing a Boolean or a throw completion
+      </h1>
+      <dl class="header">
+        <dt>for</dt>
+        <dd>a Shared Struct _O_</dd>
+      </dl>
+      <emu-alg>
+        1. Assert: ! TestIntegrityLevel(_O_, ~sealed~) is *true*.
+        1. Let _current_ be ! _O_.[[GetOwnProperty]](_P_).
+        1. If _current_ is *undefined*, return *false*.
+        1. Assert: IsDataDescriptor(_current_) is *true*.
+        1. Assert: _current_.[[Enumerable]] is *true*.
+        1. Assert: _current_.[[Configurable]] is *false*.
+        1. Assert: _current_.[[Writable]] is *true*.
+        1. If _Desc_ has a [[Enumerable]] field and _Desc_.[[Enumerable]] is *false*, return *false*.
+        1. If _Desc_ has a [[Configurable]] field and _Desc_.[[Configurable]] is *true*, return *false*.
+        1. If _Desc_ has a [[Writable]] field and _Desc_.[[Writable]] is *false*, return *false*.
+        1. If _Desc_ has a [[Value]] field, then
+          1. If CanBeSharedAcrossAgents(_Desc_.[[Value]]) is *false*, throw a *TypeError* exception.
+          1. Perform WriteSharedStructField(_O_, _P_, _Desc_.[[Value]], ~unordered~).
+        1. Return *true*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-hasproperty" type="internal method">
+      <h1>
+        [[HasProperty]] (
+          _P_: a property key,
+        ): a normal completion containing a Boolean
+      </h1>
+      <dl class="header">
+        <dt>for</dt>
+        <dd>a Shared Struct _O_</dd>
+      </dl>
+      <emu-alg>
+        1. If _O_ does not have an own property with key _P_, return *false*.
+        1. NOTE: [[GetOwnPropertyDescriptor]] is not used to avoid an unnecessary ReadSharedMemory event.
+        1. Return *true*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-get" type="internal method">
+      <h1>
+        [[Get]] (
+          _P_: a property key,
+          _Receiver_: an ECMAScript language value,
+        ): a normal completion containing an ECMAScript language value
+      </h1>
+      <dl class="header">
+        <dt>for</dt>
+        <dd>a shared Struct _O_</dd>
+      </dl>
+      <emu-alg>
+        1. Let _ownDesc_ be ! _O_.[[GetOwnProperty]](_P_).
+        1. If _ownDesc_ is *undefined*, return *undefined*.
+        1. Return _ownDesc_.[[Value]].
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-set" type="internal method">
+      <h1>
+        [[Set]] (
+          _P_: a property key,
+          _V_: an ECMAScript language value,
+          _Receiver_: an ECMAScript language value,
+        ): either a normal completion containing a Boolean or a throw completion
+      </h1>
+      <dl class="header">
+        <dt>for</dt>
+        <dd>a Shared Struct _O_</dd>
+      </dl>
+      <emu-alg>
+        1. If _O_ does not have an own property with key _P_, return *false*.
+        1. NOTE: [[GetOwnPropertyDescriptor]] is not used to avoid an unnecessary ReadSharedMemory event.
+        1. Let _desc_ be PropertyDescriptor { [[Value]]: _V_, [[Writable]]: *true*, [[Enumerable]]: *true*, [[Configurable]]: *false* }.
+        1. Return ? _O_.[[DefineOwnProperty]](_P_, _desc_).
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-delete" type="internal method">
+      <h1>
+        [[Delete]] (
+          _P_: a property key,
+        ): a normal completion containing *false*
+      </h1>
+      <dl class="header">
+        <dt>for</dt>
+        <dd>a Shared Struct _O_</dd>
+      </dl>
+      <emu-alg>
+        1. Return *false*.
+      </emu-alg>
+    </emu-clause>
+    </ins>
+  </emu-clause>
+
+  <emu-clause id="sec-shared-structs-syntax-and-eval">
+    <h1>Syntax</h1>
+
+    <ins class="block">
+    <emu-grammar type="definition">
+      StructDeclaration[Yield, Await, Default] :
+        `shared` [no LineTerminator here] `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await] SharedStructTail[?Yield, ?Await]
+        [+Default] `shared` [no LineTerminator here] `struct` [no LineTerminator here] SharedStructTail[?Yield, ?Await]
+
+      StructExpression[Yield, Await] :
+        `shared` [no LineTerminator here] `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await]? SharedStructTail[?Yield, ?Await]
+
+      SharedStructTail[Yield, Await] :
+        ClassHeritage[?Yield, ?Await]? `{` SharedStructBody[?Yield, ?Await]? `}`
+
+      SharedStructBody[Yield, Await] :
+        ClassElementList[?Yield, ?Await]
+    </emu-grammar>
+    <emu-note>
+      <p>A shared struct definition is always strict mode code.</p>
+    </emu-note>
+
+    <emu-clause id="sec-struct-definitions-static-semantics-containsinstanceprivateidentifier">
+      <h1>Static Semantics: ContainsInstancePrivateIdentifier ( ) : a Boolean</h1>
+      <dl class=""header">
+      </dl>
+      <emu-grammar>ClassElementList : ClassElement</emu-grammar>
+      <emu-alg>
+        1. Return ContainsInstancePrivateIdentifier of |ClassElement|.
+      </emu-alg>
+
+      <emu-grammar>ClassElementList : ClassElementList ClassElement</emu-grammar>
+      <emu-alg>
+        1. If ContainsInstancePrivateIdentifier of |ClassElementList|, return *true*.
+        1. Return ContainsInstancePrivateIdentifier of |ClassElement|.
+      </emu-alg>
+
+      <emu-grammar>ClassElement : FieldDefinition `;`</emu-grammar>
+      <emu-alg>
+        1. Return |FieldDefinition| Contains |PrivateIdentifier|.
+      </emu-alg>
+
+      <emu-grammar>ClassElement : MethodDefinition</emu-grammar>
+      <emu-alg>
+        1. Return |MethodDefinition| Contains |PrivateIdentifier|.
+      </emu-alg>
+
+      <emu-grammar>
+        ClassElement :
+          `static` FieldDefinition `;`
+          `static` MethodDefinition
+          ClassStaticBlock
+          `;`
+      </emu-grammar>
+      <emu-alg>
+        1. Return *false*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-struct-definitions-static-semantics-containsinstancemethod">
+      <h1>Static Semantics: ContainsInstanceMethod ( ) : a Boolean</h1>
+      <dl class=""header">
+      </dl>
+      <emu-grammar>ClassElementList : ClassElement</emu-grammar>
+      <emu-alg>
+        1. Return ContainsInstanceMethod of |ClassElement|.
+      </emu-alg>
+
+      <emu-grammar>ClassElementList : ClassElementList ClassElement</emu-grammar>
+      <emu-alg>
+        1. If ContainsInstanceMethod of |ClassElementList|, return *true*.
+        1. Return ContainsInstanceMethod of |ClassElement|.
+      </emu-alg>
+
+      <emu-grammar>ClassElement : MethodDefinition</emu-grammar>
+      <emu-alg>
+        1. If ClassElementKind of |ClassElement| is ~constructor-method~, return *false*.
+        1. Return *true*.
+      </emu-alg>
+
+      <emu-grammar>
+        ClassElement :
+          FieldDefinition `;`
+          `static` FieldDefinition `;`
+          `static` MethodDefinition
+          ClassStaticBlock
+          `;`
+      </emu-grammar>
+      <emu-alg>
+        1. Return *false*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-definitions-static-semantics-early-errors">
+      <h1>Static Semantics: Early Errors</h1>
+      <emu-grammar>SharedStructBody : ClassElementList</emu-grammar>
+      <ul>
+        <li>
+          It is a SyntaxError if PrototypePropertyNameList of |ClassElementList| contains more than one occurrence of *"constructor"*.
+        </li>
+        <li>
+          It is a Syntax Error if ContainsInstancePrivateIdentifier of |ClassElementList| is *true*.
+        </li>
+        <li>
+          It is a SyntaxError if ContainsInstanceMethod of |ClassElementList| is *true*.
+        </li>
+      </ul>
+      <emu-note>
+        <p>EDITOR'S NOTE: Per-Realm prototypes, which is currently an open design question and not included in this draft, will allow methods.</p>
+      </emu-note>
+    </emu-clause>
+
+    <emu-clause id="sec-canbesharedacrossagents" type="abstract operation">
+      <h1>
+        CanBeSharedAcrossAgents (
+          _val_: an ECMAScript language value
+        ): a Boolean
+      </h1>
+      <dl class="header">
+        <dt>description</dt>
+        <dd>
+          <p>Returns whether ECMAScript language language values can be shared across agents. Primitives can always be shared.</p>
+        </dd>
+      </dl>
+      <emu-alg>
+        1. If _val_ is *undefined*, return *true*.
+        1. If _val_ is *null*, return *true*.
+        1. If _val_ is a String, return *true*.
+        1. If _val_ is a Boolean, return *true*.
+        1. If _val_ is a Number, return *true*.
+        1. If _val_ is a BigInt, return *true*.
+        1. If _val_ is a Symbol, return *true*.
+        1. Assert: _val_ is an Object.
+        1. If _val_ is a Shared Struct exotic object, return *true*.
+        1. If _val_ is a Shared Array exotic object, return *true*.
+        1. Return *false*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-definesharedstructfield" type="abstract operation">
+      <h1>
+        DefineSharedStructField (
+          _receiver_: a Shared Struct,
+          _fieldRecord_: a ClassFieldDefinition Record,
+        ): ~unused~
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Assert: The surrounding agent is in the critical section for Shared Struct creation.
+        1. Let _fieldName_ be _fieldRecord_.[[Name]].
+        1. Assert: _fieldName_ is a property key.
+        1. Create an own data property named _fieldName_ of object _receiver_ whose [[Value]] is *undefined*, [[Writable]] is *true*, [[Enumerable]] is *true*, and [[Configurable]] is *false*.
+        1. Perform WriteSharedStructField(_receiver_, _fieldName_, *undefined*, ~init~).
+        1. Return ~unused~.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-runtime-semantics-sharedstructdefinitionevaluation" type="sdo">
+      <h1>
+        Runtime Semantics: SharedStructDefinitionEvaluation (
+          _structBinding_: a String or *undefined*,
+          _structName_: a property key,
+        ): either a normal completion containing a function object or an abrupt completion
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-grammar>SharedStructTail : ClassHeritage? `{` SharedStructBody? `}`</emu-grammar>
+      <emu-alg>
+        1. Let _env_ be the LexicalEnvironment of the running execution context.
+        1. Let _structEnv_ be NewDeclarativeEnvironment(_env_).
+        1. If _structBinding_ is not *undefined*, then
+          1. Perform ! _structEnv_.CreateImmutableBinding(_structBinding_, *true*).
+        1. Let _outerPrivateEnvironment_ be the running execution context's PrivateEnvironment.
+        1. Let _classPrivateEnvironment_ be NewPrivateEnvironment(_outerPrivateEnvironment_).
+        1. If |SharedStructBody| is present, then
+          1. For each String _dn_ of the PrivateBoundIdentifiers of |SharedStructBody|, do
+            1. If _classPrivateEnvironment_.[[Names]] contains a Private Name _pn_ such that _pn_.[[Description]] is _dn_, then
+              1. Assert: This is only possible for getter/setter pairs.
+            1. Else,
+              1. Let _name_ be a new Private Name whose [[Description]] is _dn_.
+              1. Append _name_ to _classPrivateEnvironment_.[[Names]].
+        1. If |ClassHeritage| is not present, then
+          1. Let _constructorParent_ be %Function.prototype%.
+        1. Else,
+          1. Set the running execution context's LexicalEnvironment to _structEnv_.
+          1. Let _superclassRef_ be Completion(Evaluation of |ClassHeritage|).
+          1. Set the running execution context's LexicalEnvironment to _env_.
+          1. Let _superclass_ be ? GetValue(? _superclassRef_).
+          1. If _superclass_ is *null*, then
+            1. Let _constructorParent_ be %Function.prototype%.
+          1. Else if _superclass_ does not have a [[IsSharedStructConstructor]] internal slot, then
+            1. Throw a *TypeError* exception.
+          1. Else,
+            1. Let _constructorParent_ be _superclass_.
+        1. Let _proto_ be *null*.
+        1. NOTE: Per-Realm prototypes, which is currently an open design question and not included in this draft, will allow prototypes.
+        1. NOTE: Shared Structs have one-shot construction, with the user-defined "constructor" method performing post-construction initialization. By the time ECMAScript code has access to a Shared Struct instance, it already has all of its declared fields as own properties.
+        1. Set the running execution context's LexicalEnvironment to _structEnv_.
+        1. Set the running execution context's PrivateEnvironment to _classPrivateEnvironment_.
+        1. If |SharedStructBody| is not present, let _initializerParseNode_ be ~empty~.
+        1. Else, let _initializerParseNode_ be ConstructorMethod of |SharedStructBody|.
+        1. If _initializerParseNode_ is ~empty~, then
+          1. Let _initializer_ be ~empty~.
+        1. Else,
+          1. Let _initializerInfo_ be ? DefineMethod of _initializerParseNode_ with arguments _proto_ and _constructorParent_.
+          1. Let _initializer_ be _initializerInfo_.[[Closure]].
+          1. Perform SetFunctionName(_initializer_, _structName_).
+        1. Let _constructor_ be a new Abstract Closure with no parameters that captures _initializer_ and performs the following steps when called:
+          1. Let _args_ be the List of arguments that was passed to this function by [[Call]] or [[Construct]].
+          1. Let _F_ be the active function object.
+          1. If NewTarget is not _F_, throw a *TypeError* exception.
+          1. Perform EnterSharedStructCreationCriticalSection().
+          1. Let _result_ be OrdinaryObjectCreate(*null*, « »).
+          1. Set _result_.[[GetOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-getownproperty"></emu-xref>.
+          1. Set _result_.[[DefineOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-defineownproperty"></emu-xref>.
+          1. Set _result_.[[HasProperty]] as specified in <emu-xref href="#sec-shared-struct-hasproperty"></emu-xref>.
+          1. Set _result_.[[Get]] as specified in <emu-xref href="#sec-shared-struct-get"></emu-xref>.
+          1. Set _result_.[[Set]] as specified in <emu-xref href="#sec-shared-struct-set"></emu-xref>.
+          1. Set _result_.[[Delete]] as specified in <emu-xref href="#sec-shared-struct-delete"></emu-xref>.
+          1. Perform InitializeStructInstanceFieldsAndBrand(_result_, _F_).
+          1. Perform ! _result_.[[PreventExtensions]]().
+          1. Perform LeaveSharedStructCreationCriticalSection().
+          1. Assert: ! TestIntegrityLevel(_result_, ~sealed~) is *true*.
+          1. Perform ? RunStructInstanceFieldInitializers(_result_, _F_).
+          1. If _initializer_ is not ~empty~, then
+            1. Perform ? Call(_initializer_, _result_).
+          1. Return _result_.
+        1. Let _F_ be CreateBuiltinFunction(_constructor_, 0, structName, « [[ConstructorKind]], [[SourceText]], [[StructInitializer]], [[IsSharedStructConstructor]] », the current Realm Record, _constructorParent_).
+        1. Perform MakeConstructor(_F_, *false*, _proto_).
+        1. If |ClassHeritage| is present, set _F_.[[ConstructorKind]] to ~derived~.
+        1. Set _F_.[[StructInitializer]] to _initializer_.
+        1. Set _F_.[[IsSharedStructConstructor]] to *true*.
+        1. If |StructBody| is not present, let _elements_ be a new empty List.
+        1. Else, let _elements_ be NonConstructorElements of |SharedStructBody|.
+        1. Let _staticPrivateMethods_ be a new empty List.
+        1. Let _instanceFields_ be a new empty List.
+        1. Let _staticElements_ be a new empty List.
+        1. For each |ClassElement| _e_ of _elements_, do
+          1. If IsStatic of _e_ is *false*, then
+            1. Let _element_ be Completion(ClassElementEvaluation of _e_ with argument _proto_).
+          1. Else,
+            1. Let _element_ be Completion(ClassElementEvaluation of _e_ with argument _F_).
+          1. If _element_ is an abrupt completion, then
+            1. Set the running execution context's LexicalEnvironment to _env_.
+            1. Set the running execution context's PrivateEnvironment to _outerPrivateEnvironment_.
+            1. Return ? _element_.
+          1. Set _element_ to ! _element_.
+          1. If _element_ is a PrivateElement, then
+            1. Assert: _element_.[[Kind]] is either ~method~ or ~accessor~.
+            1. Assert: IsStatic of _e_ is *true*.
+            1. Let _container_ be _staticPrivateMethods_.
+            1. If _container_ contains a PrivateElement _pe_ such that _pe_.[[Key]] is _element_.[[Key]], then
+              1. Assert: _element_.[[Kind]] and _pe_.[[Kind]] are both ~accessor~.
+              1. If _element_.[[Get]] is *undefined*, then
+                1. Let _combined_ be PrivateElement { [[Key]]: _element_.[[Key]], [[Kind]]: ~accessor~, [[Get]]: _pe_.[[Get]], [[Set]]: _element_.[[Set]] }.
+              1. Else,
+                1. Let _combined_ be PrivateElement { [[Key]]: _element_.[[Key]], [[Kind]]: ~accessor~, [[Get]]: _element_.[[Get]], [[Set]]: _pe_.[[Set]] }.
+              1. Replace _pe_ in _container_ with _combined_.
+            1. Else,
+              1. Append _element_ to _container_.
+          1. Else if _element_ is a ClassFieldDefinition Record, then
+            1. If IsStatic of _e_ is *false*, append _element_ to _instanceFields_.
+            1. Else, append _element_ to _staticElements_.
+          1. Else if _element_ is a ClassStaticBlockDefinition Record, then
+            1. Append _element_ to _staticElements_.
+        1. Set the running execution context's LexicalEnvironment to _env_.
+        1. If _structBinding_ is not *undefined*, then
+          1. Perform ! _structEnv_.InitializeBinding(_structBinding_, _F_).
+        1. Set _F_.[[Fields]] to _instanceFields_.
+        1. For each PrivateElement _method_ of _staticPrivateMethods_, do
+          1. Perform ! PrivateMethodOrAccessorAdd(_F_, _method_).
+        1. For each element _elementRecord_ of _staticElements_, do
+          1. If _elementRecord_ is a ClassFieldDefinition Record, then
+            1. Let _result_ be Completion(DefineField(_F_, _elementRecord_)).
+          1. Else,
+            1. Assert: _elementRecord_ is a ClassStaticBlockDefinition Record.
+            1. Let _result_ be Completion(Call(_elementRecord_.[[BodyFunction]], _F_)).
+          1. If _result_ is an abrupt completion, then
+            1. Set the running execution context's PrivateEnvironment to _outerPrivateEnvironment_.
+            1. Return ? _result_.
+        1. Set the running execution context's PrivateEnvironment to _outerPrivateEnvironment_.
+        1. Perform ! SetIntegrityLevel(_F_, ~sealed~).
+        1. Return _F_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-runtime-semantics-bindingsharedstructdeclarationevaluation" type=""sdo">
+      <h1>Runtime Semantics: BindingStructDeclarationEvaluation</h1>
+      <emu-grammar>StructDeclaration : `shared` `struct` BindingIdentifier SharedStructTail</emu-grammar>
+      <emu-alg>
+        1. Let _structName_ be the StringValue of |BindingIdentifier|.
+        1. Let _value_ be ? SharedStructDefinitionEvaluation of |StructTail| with arguments _structName_ and _structName_.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructDeclaration|.
+        1. Let _env_ be the running execution context's LexicalEnvironment.
+        1. Perform ? InitializeBoundName(_structName_, _value_, _env_).
+        1. Return _value_.
+      </emu-alg>
+      <emu-grammar>StructDeclaration : `shared` `struct` SharedStructTail</emu-grammar>
+      <emu-alg>
+        1. Let _value_ be ? SharedStructDefinitionEvaluation of |SharedStructTail| with arguments *undefined* and *"default"*.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructDeclaration|.
+        1. Return _value_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-shared-struct-definitions-runtime-semantics-evaluation" type="sdo">
+      <h1>Runtime Semantics: Evaluation</h1>
+      <emu-grammar>StructDeclaration : `shared` `struct` BindingIdentifier SharedStructTail</emu-grammar>
+      <emu-alg>
+        1. Perform ? BindingStructDeclarationEvaluation of this |StructDeclaration|.
+        1. Return ~empty~.
+      </emu-alg>
+      <emu-grammar>StructExpression : `shared` `struct` SharedStructTail</emu-grammar>
+      <emu-alg>
+        1. Let _value_ be ? SharedStructDefinitionEvaluation of |SharedStructTail| with arguments *undefined* and *""*.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
+        1. Return _value_.
+      </emu-alg>
+      <emu-grammar>StructExpression : `shared` `struct` BindingIdentifier SharedStructTail</emu-grammar>
+      <emu-alg>
+        1. Let _structName_ be StringValue of |BindingIdentifier|.
+        1. Let _value_ be ? SharedStructDefinitionEvaluation of |SharedStructTail| with arguments _structName_ and _structName_.
+        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
+        1. Return _value_.
+      </emu-alg>
+    </emu-clause>
+    </ins>
+  </emu-clause>
+
+  <emu-clause id="sec-changes-to-atomics-object">
+    <h1>Changes to the Atomics Object</h1>
+
+    <ins class="block">
+    <emu-clause id="sec-atomiccompareexchangeinsharedstruct" type="abstract operation">
+      <h1>
+        AtomicCompareExchangeInSharedStruct (
+          _struct_: a Shared Struct,
+          _field_: a property key,
+          _expectedValue_: an ECMAScript language value,
+          _replacementValue_: an ECMAScript language value
+        ): an ECMAScript language value
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Assert: CanBeSharedAcrossAgents(_replacementValue_) is *true*.
+        1. Let _execution_ be the [[CandidateExecution]] field of the surrounding agent's Agent Record.
+        1. Let _eventsRecord_ be the Agent Events Record of _execution_.[[EventsRecords]] whose [[AgentSignifier]] is AgentSignifier().
+        1. Perform EnterSharedStructCreationCriticalSection().
+        1. Let _rawLanguageValue_ be a nondeterministically chosen ECMAScript language value such that CanBeSharedAcrossAgents(_rawLanguageValue_) is *true*.
+        1. Perform LeaveSharedStructCreationCriticalSection().
+        1. NOTE: In implementations, _rawLanguageValue_ is the result of a non-atomic or atomic read instruction on the underlying hardware. The nondeterminism is a semantic prescription of the memory model to describe observable behaviour of hardware with weak consistency.
+        1. NOTE: The comparison of the expected value and the read value is performed outside of the read-modify-write modification function to avoid needlessly strong synchronization when the expected value is not equal to the read value.
+        1. Let _storage_ be SharedStructStorage { [[Struct]]: _struct_, [[Field]]: _field_ }.
+        1. If SameValue(_expectedValue_, _replacementValue_) is *true*, then
+          1. Let _second_ be a new read-modify-write modification function with parameters (_oldValue_, _newValue_) that captures nothing and performs the following steps atomically when called:
+            1. Return _newValue_.
+          1. Let _event_ be ReadModifyWriteSharedMemory { [[Order]]: ~seq-cst~, [[NoTear]]: *true*, [[Storage]]: _storage_, [[Payload]]: _replacementValue_, [[ModifyOp]]: _second_ }.
+        1. Else,
+          1. Let _event_ be ReadSharedMemory { [[Order]]: ~seq-cst~, [[NoTear]]: *true*, [[Storage]]: _storage_ }.
+        1. Append _event_ to _eventsRecord_.[[EventList]].
+        1. Append Chosen Value Record { [[Event]]: _event_, [[ChosenValue]]: _rawLanguageValue_ } to _execution_.[[ChosenValues]].
+        1. Return _rawLanguageValue_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomicreadmodifywriteinsharedstruct" type="abstract operation">
+      <h1>
+        AtomicReadModifyWriteInSharedStruct (
+          _struct_: a Shared Struct
+          _field_: an ECMAScript language value,
+          _value_: an ECMAScript language value,
+          _op_: a read-modify-write modification function,
+        ): either a normal completion containing an ECMAScript language value, or a throw completion
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. If _field_ is not a property key, throw a *TypeError* exception.
+        1. If CanBeSharedAcrossAgents(_value_) is *false*, throw a *TypeError* exception.
+        1. If _struct_ does not have an own property with key _field_, throw a *RangeError* exception.
+        1. Let _execution_ be the [[CandidateExecution]] field of the surrounding agent's Agent Record.
+        1. Let _eventsRecord_ be the Agent Events Record of _execution_.[[EventsRecords]] whose [[AgentSignifier]] is AgentSignifier().
+        1. Perform EnterSharedStructCreationCriticalSection().
+        1. Let _rawLanguageValue_ be a nondeterministically chosen ECMAScript language value such that CanBeSharedAcrossAgents(_rawLanguageValue_) is *true*.
+        1. Perform LeaveSharedStructCreationCriticalSection().
+        1. NOTE: In implementations, _rawLanguageValue_ is the result of a non-atomic or atomic read instruction on the underlying hardware. The nondeterminism is a semantic prescription of the memory model to describe observable behaviour of hardware with weak consistency.
+        1. Let _storage_ be SharedStructStorage { [[Struct]]: _struct_, [[Field]]: _field_ }.
+        1. Let _rmwEvent_ be ReadModifyWriteSharedMemory { [[Order]]: ~seq-cst~, [[NoTear]]: *true*, [[Storage]]: _storage_, [[Payload]]: _rawLanguageValue_, [[ModifyOp]]: _op_ }.
+        1. Append _rmwEvent_ to _eventsRecord_.[[EventList]].
+        1. Append Chosen Value Record { [[Event]]: _rmwEvent_, [[ChosenValue]]: _rawLanguageValue_ } to _execution_.[[ChosenValues]].
+        1. Return _rawLanguageValue_.
+      </emu-alg>
+    </emu-clause>
+    </ins>
+
+    <emu-clause id="sec-atomics.compareexchange-struct">
+      <h1>Atomics.compareExchange ( <del>_typedArray_</del><ins>_typedArrayOrStruct_</ins>, <del>_index_</del><ins>_indexOrField_</ins>, _expectedValue_, _replacementValue_ )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. <ins>If _typedArrayOrStruct_ is a Shared Struct, then</ins>
+          1. <ins>If _indexOrField_ is not a property key, throw a *TypeError* exception.</ins>
+          1. <ins>If CanBeSharedAcrossAgents(_replacementValue_) is *false*, throw a *TypeError* exception.</ins>
+          1. <ins>If _typedArrayOrStruct_ does not have an own property with key _indexOrField_, throw a *RangeError* exception.</ins>
+          1. <ins>Return AtomicCompareExchangeInSharedStruct(_typedArrayOrStruct_, _indexOrField_, _expectedValue_, _replacementValue_).</ins>
+        1. <ins>Let _typedArray_ be _typedArrayOrStruct_.</ins>
+        1. <ins>Let _index_ be _indexOrField_.</ins>
+        1. Let _byteIndexInBuffer_ be ? ValidateAtomicAccessOnIntegerTypedArray(_typedArray_, _index_).
+        1. Let _buffer_ be _typedArray_.[[ViewedArrayBuffer]].
+        1. Let _block_ be _buffer_.[[ArrayBufferData]].
+        1. If _typedArray_.[[ContentType]] is ~bigint~, then
+          1. Let _expected_ be ? ToBigInt(_expectedValue_).
+          1. Let _replacement_ be ? ToBigInt(_replacementValue_).
+        1. Else,
+          1. Let _expected_ be 𝔽(? ToIntegerOrInfinity(_expectedValue_)).
+          1. Let _replacement_ be 𝔽(? ToIntegerOrInfinity(_replacementValue_)).
+        1. Perform ? RevalidateAtomicAccess(_typedArray_, _byteIndexInBuffer_).
+        1. Let _elementType_ be TypedArrayElementType(_typedArray_).
+        1. Let _elementSize_ be TypedArrayElementSize(_typedArray_).
+        1. Let _isLittleEndian_ be the value of the [[LittleEndian]] field of the surrounding agent's Agent Record.
+        1. Let _expectedBytes_ be NumericToRawBytes(_elementType_, _expected_, _isLittleEndian_).
+        1. Let _replacementBytes_ be NumericToRawBytes(_elementType_, _replacement_, _isLittleEndian_).
+        1. If IsSharedArrayBuffer(_buffer_) is *true*, then
+          1. Let _rawBytesRead_ be AtomicCompareExchangeInSharedBlock(_block_, _byteIndexInBuffer_, _elementSize_, _expectedBytes_, _replacementBytes_).
+        1. Else,
+          1. Let _rawBytesRead_ be a List of length _elementSize_ whose elements are the sequence of _elementSize_ bytes starting with _block_[_byteIndexInBuffer_].
+          1. If ByteListEqual(_rawBytesRead_, _expectedBytes_) is *true*, then
+            1. Store the individual bytes of _replacementBytes_ into _block_, starting at _block_[_byteIndexInBuffer_].
+        1. Return RawBytesToNumeric(_elementType_, _rawBytesRead_, _isLittleEndian_).
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.exchange-struct">
+      <h1>Atomics.exchange ( <del>_typedArray_</del><ins>_typedArrayOrStruct_</ins>, <del>_index_</del><ins>_indexOrField_</ins>, _value_ )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. Let _second_ be a new read-modify-write modification function with parameters (<del>_oldBytes_</del><ins>_oldValue_</ins>, <del>_newBytes_</del><ins>_newValue_</ins>) that captures nothing and performs the following steps atomically when called:
+          1. Return <del>_newBytes_</del><ins>_newValue_</ins>.
+        1. <ins>If _typedArrayOrStruct is a Shared Struct, then</ins>
+          1. <ins>Return ? AtomicReadModifyWriteInSharedStruct(_typedArrayOrStruct_, _indexOrField_, _value_, _second_).</ins>
+        1. <ins>Let _typedArray_ be _typedArrayOrStruct_.</ins>
+        1. <ins>Let _index_ be _indexOrField_.</ins>
+        1. Return ? AtomicReadModifyWrite(_typedArray_, _index_, _value_, _second_).
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.load-struct">
+      <h1>Atomics.load ( <del>_typedArray_</del><ins>_typedArrayOrStruct_</ins>, <del>_index_</del><ins>_indexOrField_</ins> )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. <ins>If _typedArrayOrStruct_ is a Shared Struct, then</ins>
+          1. <ins>If _indexOrField_ is not a property key, throw a *TypeError* exception.</ins>
+          1. <ins>If _typedArrayOrStruct_ does not have an own property with key _indexOrField_, throw a *RangeError* exception.</ins>
+          1. <ins>Return ReadSharedStructField(_typedArrayOrStruct_, _indexOrField_, ~seq-cst~).</ins>
+        1. Let _byteIndexInBuffer_ be ? ValidateAtomicAccessOnIntegerTypedArray(_typedArray_, _index_).
+        1. Perform ? RevalidateAtomicAccess(_typedArray_, _byteIndexInBuffer_).
+        1. Let _buffer_ be _typedArray_.[[ViewedArrayBuffer]].
+        1. Let _elementType_ be TypedArrayElementType(_typedArray_).
+        1. Return GetValueFromBuffer(_buffer_, _byteIndexInBuffer_, _elementType_, *true*, ~seq-cst~).
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.store-struct">
+      <h1>Atomics.store ( <del>_typedArray_</del><ins>_typedArrayOrStruct_</ins>, <del>_index_</del><ins>_indexOrField_</ins>, _value_ )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. <ins>If _typedArrayOrStruct_ is a Shared Struct, then</ins>
+          1. <ins>If _indexOrField_ is not a property key, throw a *TypeError* exception.</ins>
+          1. <ins>If CanBeSharedAcrossAgents(_value_) is *false*, throw a *TypeError* exception.</ins>
+          1. <ins>If _typedArrayOrStruct_ does not have an own property with key _indexOrField_, throw a *RangeError* exception.</ins>
+          1. <ins>perform WriteSharedStructField(_typedArrayOrStruct_, _indexOrField_, _value_, ~seq-cst~).</ins>
+          1. <ins>Return _value_.</ins>
+        1. Let _byteIndexInBuffer_ be ? ValidateAtomicAccessOnIntegerTypedArray(_typedArray_, _index_).
+        1. If _typedArray_.[[ContentType]] is ~bigint~, let _v_ be ? ToBigInt(_value_).
+        1. Otherwise, let _v_ be 𝔽(? ToIntegerOrInfinity(_value_)).
+        1. Perform ? RevalidateAtomicAccess(_typedArray_, _byteIndexInBuffer_).
+        1. Let _buffer_ be _typedArray_.[[ViewedArrayBuffer]].
+        1. Let _elementType_ be TypedArrayElementType(_typedArray_).
+        1. Perform SetValueInBuffer(_buffer_, _byteIndexInBuffer_, _elementType_, _v_, *true*, ~seq-cst~).
+        1. Return _v_.
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-changes-to-memory-model">
+    <h1>Changes to the Memory Model</h1>
+    <emu-clause id="sec-memory-model-fundamentals">
+      <h1>Memory Model Fundamentals</h1>
+      <p>Shared memory accesses (reads and writes) are divided into two groups, atomic accesses and data accesses, defined below. Atomic accesses are sequentially consistent, i.e., there is a strict total ordering of events agreed upon by all agents in an agent cluster. Non-atomic accesses do not have a strict total ordering agreed upon by all agents, i.e., unordered.</p>
+      <emu-note>
+        <p>No orderings weaker than sequentially consistent and stronger than unordered, such as release-acquire, are supported.</p>
+      </emu-note>
+      <ins class="block">
+      <p>A <dfn variants="Shared Memory Storage Records">Shared Memory Storage Record</dfn> is either a <dfn>SharedBlockStorage</dfn> or <dfn>SharedStructStorage</dfn> Record.</p>
+
+      <emu-table id="table-sharedblockstorage-fields" caption="SharedBlockStorage Fields">
+        <table>
+          <thead>
+            <tr>
+              <th>Field Name</th>
+              <th>Value</th>
+              <th>Meaning</th>
+            </tr>
+            <tr>
+              <td>[[Block]]</td>
+              <td>a Shared Data Block</td>
+              <td>The block the event operates on.</td>
+            </tr>
+            <tr>
+              <td>[[ByteIndex]]</td>
+              <td>a non-negative integer</td>
+              <td>The byte address of the access in [[Block]].</td>
+            </tr>
+            <tr>
+              <td>[[ElementSize]]</td>
+              <td>a non-negative integer</td>
+              <td>The size of the access.</td>
+            </tr>
+          </thead>
+        </table>
+      </emu-table>
+
+      <emu-table id="table-sharedstructstorage-fields" caption="SharedStructStorage Fields">
+        <table>
+          <thead>
+            <tr>
+              <th>Field Name</th>
+              <th>Value</th>
+              <th>Meaning</th>
+            </tr>
+            <tr>
+              <td>[[Struct]]</td>
+              <td>a Shared Struct</td>
+              <td>The shared struct the event operates on.</td>
+            </tr>
+            <tr>
+              <td>[[Field]]</td>
+              <td>a property key</td>
+              <td>The field that is accessed in [[Struct]].</td>
+            </tr>
+          </thead>
+        </table>
+      </emu-table>
+      </ins>
+
+      <p>A <dfn variants="Shared Data Block events">Shared Data Block event</dfn> is either a <dfn>ReadSharedMemory</dfn>, <dfn>WriteSharedMemory</dfn>, or <dfn>ReadModifyWriteSharedMemory</dfn> Record.</p>
+
+      <emu-table id="table-readsharedmemory-fields" caption="ReadSharedMemory Event Fields">
+        <table>
+          <thead>
+            <tr>
+              <th>Field Name</th>
+              <th>Value</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tr>
+            <td>[[Order]]</td>
+            <td>~seq-cst~ or ~unordered~</td>
+            <td>The weakest ordering guaranteed by the memory model for the event.</td>
+          </tr>
+          <tr>
+            <td>[[NoTear]]</td>
+            <td>a Boolean</td>
+            <td>Whether this event is allowed to read from multiple write events with equal range as this event.</td>
+          </tr>
+          <tr>
+            <td><del>[[Block]]</del></td>
+            <td><del>a Shared Data Block</del></td>
+            <td><del>The block the event operates on.</del></td>
+          </tr>
+          <tr>
+            <td><del>[[ByteIndex]]</del></td>
+            <td><del>a non-negative integer</del></td>
+            <td><del>The byte address of the read in [[Block]].</del></td>
+          </tr>
+          <tr>
+            <td><del>[[ElementSize]]</del></td>
+            <td><del>a non-negative integer</del></td>
+            <td><del>The size of the read.</del></td>
+          </tr>
+          <tr>
+            <td><ins>[[Storage]]</ins></td>
+            <td><ins>a Shared Memory Storage Record</ins></td>
+            <td><ins>The storage of memory that is read.</ins></td>
+          </tr>
+        </table>
+      </emu-table>
+
+      <emu-table id="table-writesharedmemory-fields" caption="WriteSharedMemory Event Fields">
+        <table>
+          <thead>
+            <tr>
+              <th>Field Name</th>
+              <th>Value</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tr>
+            <td>[[Order]]</td>
+            <td>~seq-cst~, ~unordered~, or ~init~</td>
+            <td>The weakest ordering guaranteed by the memory model for the event.</td>
+          </tr>
+          <tr>
+            <td>[[NoTear]]</td>
+            <td>a Boolean</td>
+            <td>Whether this event is allowed to be read from multiple read events with equal range as this event.</td>
+          </tr>
+          <tr>
+            <td><del>[[Block]]</del></td>
+            <td><del>a Shared Data Block</del></td>
+            <td><del>The block the event operates on.</del></td>
+          </tr>
+          <tr>
+            <td><del>[[ByteIndex]]</del></td>
+            <td><del>a non-negative integer</del></td>
+            <td><del>The byte address of the write in [[Block]].</del></td>
+          </tr>
+          <tr>
+            <td><del>[[ElementSize]]</del></td>
+            <td><del>a non-negative integer</del></td>
+            <td><del>The size of the write.</del></td>
+          </tr>
+          <tr>
+            <td><ins>[[Storage]]</ins></td>
+            <td><ins>a Shared Memory Storage Record</ins></td>
+            <td><ins>The storage of memory that is written.</ins></td>
+          </tr>
+          <tr>
+            <td>[[Payload]]</td>
+            <td>a List of byte values</td>
+            <td>The List of byte values to be read by other events.</td>
+          </tr>
+        </table>
+      </emu-table>
+
+      <emu-table id="table-rmwsharedmemory-fields" caption="ReadModifyWriteSharedMemory Event Fields">
+        <table>
+          <thead>
+            <tr>
+              <th>Field Name</th>
+              <th>Value</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tr>
+            <td>[[Order]]</td>
+            <td>~seq-cst~</td>
+            <td>Read-modify-write events are always sequentially consistent.</td>
+          </tr>
+          <tr>
+            <td>[[NoTear]]</td>
+            <td>*true*</td>
+            <td>Read-modify-write events cannot tear.</td>
+          </tr>
+          <tr>
+            <td><del>[[Block]]</del></td>
+            <td><del>a Shared Data Block</del></td>
+            <td><del>The block the event operates on.</del></td>
+          </tr>
+          <tr>
+            <td><del>[[ByteIndex]]</del></td>
+            <td><del>a non-negative integer</del></td>
+            <td><del>The byte address of the read-modify-write in [[Block]].</del></td>
+          </tr>
+          <tr>
+            <td><del>[[ElementSize]]</del></td>
+            <td><del>a non-negative integer</del></td>
+            <td><del>The size of the read-modify-write.</del></td>
+          </tr>
+          <tr>
+            <td><ins>[[Storage]]</ins></td>
+            <td><ins>a Shared Memory Storage Record</ins></td>
+            <td><ins>The storage of memory of the read-modify-write.</ins></td>
+          </tr>
+          <tr>
+            <td>[[Payload]]</td>
+            <td>a List of byte values</td>
+            <td>The List of byte values to be passed to [[ModifyOp]].</td>
+          </tr>
+          <tr>
+            <td>[[ModifyOp]]</td>
+            <td>a read-modify-write modification function</td>
+            <td>An abstract closure that returns a modified List of byte values from a read List of byte values and [[Payload]].</td>
+          </tr>
+        </table>
+      </emu-table>
+
+      <p>These events are introduced by abstract operations or by methods on the Atomics object.</p>
+      <p>Some operations may also introduce <dfn>Synchronize</dfn> events. A <dfn variants="Synchronize events">Synchronize event</dfn> has no fields, and exists purely to directly constrain the permitted orderings of other events.</p>
+      <p>In addition to Shared Data Block and Synchronize events, there are host-specific events.</p>
+      <p><ins>If the [[Storage]] field of a ReadSharedMemory, WriteSharedMemory, or ReadModifyWriteSharedMemory event is a SharedBlockStorage, then </ins><del>L</del><ins>l</ins>et <del>the</del><ins>its</ins> range of <del>a ReadSharedMemory, WriteSharedMemory, or ReadModifyWriteSharedMemory event</del> be the Set of contiguous integers from its <ins>[[Storage]].</ins>[[ByteIndex]] to <ins>[[Storage]].</ins>[[ByteIndex]] + <ins>[[Storage]].</ins>[[ElementSize]] - 1. Two events' ranges are equal when the events <ins>have a SharedBlockStorage in their [[Storage]] field,</ins> have the same <ins>[[Storage]].</ins>[[Block]], and the ranges are element-wise equal. Two events' ranges are overlapping when the events have the same <ins>[[Storage]].</ins>[[Block]], the ranges are not equal and their intersection is non-empty. Two events' ranges are disjoint when the events do not <ins>both have a SharedBlockStorage in their [[Storage]] field, do not</ins> have the same <ins>[[Storage]].</ins>[[Block]]<ins>,</ins> or their ranges are neither equal nor overlapping.</p>
+      <p><ins>If the [[Storage]] field of a ReadSharedMemory, WriteSharedMemory, or ReadModifyWriteSharedMemory event is a SharedStructStorage, then let its range be the value of the [[Storage]] field. Two events' ranges are equal when the events have a SharedStructStorage in their [[Storage]] field, have the same [[Storage]].[[Struct]] and the same [[Storage]].[[Field]]. Two events' ranges that both have a SharedStructStorage in their [[Storage]] field are never overlapping. Two events' ranges are disjoint when the events do not both have a SharedStructStorage in their [[Storage]] Field, or do not have the same [[Storage]].[[Struct]] or the same [[Storage]].[[Field]].</ins></p>
+    </emu-clause>
+  </emu-clause>
+  <p>For brevity, the refactoring of the memory model relations to use SharedStructStorage and the modified definition of event ranges is omitted.</p>
+</emu-clause>
+
+<emu-clause id="sec-shared-arrays">
+  <h1>Shared Array Object</h1>
+  <p><dfn variant="Shared Array">Shared Arrays</dfn> are a special case of Shared Structs with array indexed properties and an immutable *"length"* own property. Since they are Shared Structs, their layout, i.e. their length, is fixed at creation time.</p>
+
+  <ins class="block">
+  <emu-clause id="sec-shared-array-constructor">
+    <h1>The SharedArray Constructor</h1>
+    <p>The SharedArray constructor:</p>
+    <ul>
+      <li>is <dfn>%SharedArray%</dfn>.</li>
+      <li>is the initial value of the *"SharedArray"* property of the global object.</li>
+      <li>creates and initializes a new Shared Array when called as a constructor.</li>
+      <li>is not intended to be called as a function and will throw an exception when called in that manner.</li>
+      <li>is a function whose behaviour differs based upon the number and types of its arguments.</li>
+    </ul>
+
+    <emu-clause id="sec-sharedarraycreate" type="abstract operation">
+      <h1>
+        SharedArrayCreate (
+          _length_: an non-negative integer,
+        ): a Shared Array
+      </h1>
+      <dl class="header">
+        <dt>description</dt>
+        <dd>It is used to specify the creation of new Shared Arrays.</dd>
+      </dl>
+      <emu-alg>
+        1. Assert: _length_ &le; 2<sup>32</sup> - 1.
+        1. Perform EnterSharedStructCreationCriticalSection().
+        1. Let _A_ be OrdinaryObjectCreate(*null*, « »).
+        1. Set _A_.[[GetOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-getownproperty"></emu-xref>.
+        1. Set _A_.[[DefineOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-defineownproperty"></emu-xref>.
+        1. Set _A_.[[HasProperty]] as specified in <emu-xref href="#sec-shared-struct-hasproperty"></emu-xref>.
+        1. Set _A_.[[Get]] as specified in <emu-xref href="#sec-shared-struct-get"></emu-xref>.
+        1. Set _A_.[[Set]] as specified in <emu-xref href="#sec-shared-struct-set"></emu-xref>.
+        1. Set _A_.[[Delete]] as specified in <emu-xref href="#sec-shared-struct-delete"></emu-xref>.
+        1. Let _k_ be 0.
+        1. Repeat, while _k_ &lt; _length_,
+          1. Let _Pk_ be ! ToString(𝔽(_k_)).
+          1. Create an own data property named _Pk_ of object _A_ whose [[Value]] is *undefined*, [[Writable]] is *true*, [[Enumerable]] is *true*, and [[Configurable]] is *false*.
+          1. Perform WriteSharedStructField(_A_, _Pk_, *undefined*, ~init~).
+        1. Create an own data property named *"length"* of object _A_ whose [[Value]] is 𝔽(_length_), [[Writable]] is *false*, [[Enumerable]] is *false*, and [[Configurable]] is *false*.
+        1. Perform WriteSharedStructField(_A_, *"length"*, 𝔽(_length_), ~init~).
+        1. Perform ! _A_.[[PreventExtensions]]().
+        1. Perform LeaveSharedStructCreationCriticalSection().
+        1. Assert: ! TestIntegrityLevel(_A_, ~sealed~) is *true*.
+        1. Return _A_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-sharedarray">
+      <h1>SharedArray ( ..._values_ )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. If NewTarget is *undefined*, throw a *TypeError* exception.
+        1. EDITOR'S NOTE: Per-Realm prototypes, which is currently an open design question and not included in this draft, will give Shared Arrays a per-Realm prototype with built-in methods.
+        1. Let _numberOfArgs_ be the number of elements in _values_.
+        1. If _numberOfArgs_ = 0, then
+          1. Return SharedArrayCreate(0).
+        1. Else if _numberOfArgs_ = 1, then
+          1. Let _len_ be _values_[0].
+          1. If _len_ is not an integral Number, throw a *TypeError* exception.
+          1. If _len_ &lt; 0, throw a *RangeError* exception.
+          1. Let _lenReal_ be ℝ(_len_).
+          1. If _lenReal_ > 2<sup>32</sup> - 1, throw a *RangeError* exception.
+          1. Return SharedArrayCreate(_lenReal_).
+        1. Else,
+          1. Assert: _numberOfArgs_ ≥ 2.
+          1. Let _array_ be SharedArrayCreate(_numberOfArgs_).
+          1. Let _k_ be 0.
+          1. Repeat, while _k_ &lt; _numberOfArgs_,
+            1. Let _Pk_ be ! ToString(𝔽(_k_)).
+            1. Let _itemK_ be _values_[_k_].
+            1. Perform ! Set(_array_, _Pk_, _itemK_, *true*).
+            1. Set _k_ to _k_ + 1.
+          1. Return _array_.
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+  </ins>
+</emu-clause>
