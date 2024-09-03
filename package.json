@@ -1,18 +1,21 @@
 {
   "private": true,
   "name": "proposal-structs",
-  "description": "Structs/fixed-layout objects for JavaScript",
+  "description": "JavaScript Structs (build)",
+  "license": "Fair",
   "scripts": {
-    "start": "npm run build-loose -- --watch",
     "build": "npm run build-loose -- --strict",
-    "build-loose": "ecmarkup --verbose spec.emu out/index.html"
+    "build-loose": "node -e 'fs.mkdirSync(\"build\", { recursive: true })' && ecmarkup --load-biblio @tc39/ecma262-biblio --verbose spec/index.html build/index.html --js-out build/ecmarkup.js --css-out build/ecmarkup.css --lint-spec",
+    "format": "emu-format --write 'spec/*.html'"
   },
   "homepage": "https://github.com/syg/proposal-structs",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/syg/proposal-structs.git"
   },
-  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tc39/proposal-structs/issues"
+  },
   "devDependencies": {
     "@tc39/ecma262-biblio": "^2.1.2407",
     "ecmarkup": "^15.0.0"
