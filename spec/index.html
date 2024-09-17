@@ -735,9 +735,9 @@ markEffects: true
       <p>A shared struct definition is always strict mode code.</p>
     </emu-note>
 
-    <emu-clause id="sec-struct-definitions-static-semantics-containsinstanceprivateidentifier">
+    <emu-clause id="sec-struct-definitions-static-semantics-containsinstanceprivateidentifier" type="sdo">
       <h1>Static Semantics: ContainsInstancePrivateIdentifier ( ) : a Boolean</h1>
-      <dl class=""header">
+      <dl class="header">
       </dl>
       <emu-grammar>ClassElementList : ClassElement</emu-grammar>
       <emu-alg>
@@ -772,9 +772,9 @@ markEffects: true
       </emu-alg>
     </emu-clause>
 
-    <emu-clause id="sec-struct-definitions-static-semantics-containsinstancemethod">
+    <emu-clause id="sec-struct-definitions-static-semantics-containsinstancemethod" type="sdo">
       <h1>Static Semantics: ContainsInstanceMethod ( ) : a Boolean</h1>
-      <dl class=""header">
+      <dl class="header">
       </dl>
       <emu-grammar>ClassElementList : ClassElement</emu-grammar>
       <emu-alg>
@@ -1184,7 +1184,7 @@ markEffects: true
           1. <ins>If _indexOrField_ is not a property key, throw a *TypeError* exception.</ins>
           1. <ins>If CanBeSharedAcrossAgents(_value_) is *false*, throw a *TypeError* exception.</ins>
           1. <ins>If _typedArrayOrStruct_ does not have an own property with key _indexOrField_, throw a *RangeError* exception.</ins>
-          1. <ins>perform WriteSharedStructField(_typedArrayOrStruct_, _indexOrField_, _value_, ~seq-cst~).</ins>
+          1. <ins>Perform WriteSharedStructField(_typedArrayOrStruct_, _indexOrField_, _value_, ~seq-cst~).</ins>
           1. <ins>Return _value_.</ins>
         1. Let _byteIndexInBuffer_ be ? ValidateAtomicAccessOnIntegerTypedArray(_typedArray_, _index_).
         1. If _typedArray_.[[ContentType]] is ~bigint~, let _v_ be ? ToBigInt(_value_).
