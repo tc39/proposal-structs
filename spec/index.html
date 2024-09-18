@@ -2792,5 +2792,89 @@ markEffects: true
       </emu-alg>
     </emu-clause>
   </emu-clause>
+
+  <emu-clause id="sec-condition-object">
+    <h1>The Condition Constructor</h1>
+    <p>The Condition constructor:</p>
+    <ul>
+      <li>is <dfn>%Condition%</dfn>.</li>
+      <li>is the initial value of the *"Condition"* property of the %Atomics% object.</li>
+      <li>creates and initializes a new Condition when called as constructor.</li>
+      <li>is not intended to be called as a function and will throw an exception when called in that manner.</li>
+    </ul>
+
+    <emu-clause id="sec-atomics.condition">
+      <h1>Atomics.Condition ( )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. If NewTarget is *undefined*, throw a *TypeError* exception.
+        1. Let _createInitializer_ be a new Abstract Closure with parameters (_newCV_) that captures nothing and performs the following steps when called:
+          1. Set _newCV_.[[ConditionWaiterList]] to a new WaiterList Record.
+          1. Return ~unused~.
+        1. Return SharedStructCreate(_createInitializer_, « [[ConditionWaiterList]] »).
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-properties-of-the-condition-constructor">
+    <h1>Properties of the Condition Constructor</h1>
+    <p>The Condition constructor:</p>
+    <ul>
+      <li>has a [[Prototype]] internal slot whose value is %Function.prototype%.</li>
+      <li>has the following properties:</li>
+    </ul>
+
+    <emu-note>
+      <p>Per-Realm prototypes, which is currently an open design question and not included in this draft, will give Conditions a per-Realm prototype with built-in methods instead of static methods.</p>
+    </emu-note>
+
+    <emu-clause id="sec-atomics.condition.wait">
+      <h1>Atomics.Condition.wait ( _cv_, _mutexUnlockToken_ [ , _timeout_ ] )</h1>
+      <p>This function puts the surrounding agent in a wait queue and suspends it until the condition variable is notified or until the wait times out, returning a String differentiating those cases.</p>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
+        1. Perform ? RequireInternalSlot(_mutexUnlockToken_, [[LockedMutex]]).
+        1. If _mutexUnlockToken_.[[LockedMutex]] is ~empty~, throw a *TypeError* exception.
+        1. If _timeout_ is *undefined*, set _timeout_ to *+∞*<sub>𝔽</sub>.
+        1. If _timeout_ is not a Number, throw a *TypeError* exception.
+        1. If _timeout_ is either *NaN* or *+∞*<sub>𝔽</sub>, let _tMillis_ be +∞; else if _timeout_ is *-∞*<sub>𝔽</sub>, let _tMillis_ be 0; else let _tMillis_ be max(ℝ(_timeout_), 0).
+        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. Let _mutex_ be _mutexUnlockToken_.[[LockedMutex]].
+        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
+        1. Perform EnterCriticalSection(_WL_).
+        1. Let _thisAgent_ be AgentSignifier().
+        1. Let _now_ be the time value (UTC) identifying the current time.
+        1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
+        1. Let _timeoutTime_ be ℝ(_now_) + _tMillis_ + _additionalTimeout_.
+        1. NOTE: When _tMillis_ is +∞, _timeoutTime_ is also +∞.
+        1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: _timeoutTime_, [[Result]]: *"ok"* }.
+        1. Perform AddWaiter(_WL_, _waiterRecord_).
+        1. Perform UnlockMutex(_mutex_).
+        1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
+        1. Perform LeaveCriticalSection(_WL_).
+        1. Perform LockMutex(_mutex_, +∞).
+        1. Return _waiterRecord_.[[Result]].
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.condition.notify">
+      <h1>Atomics.Condition.notify ( _cv_ [ , _count_ ] )</h1>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
+        1. If _count_ is *undefined*, set _count_ to *+∞*<sub>𝔽</sub>.
+        1. If _count_ is not an integral Number or is not *+∞*<sub>𝔽</sub>, throw a *TypeError* exception.
+        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
+        1. Perform EnterCriticalSection(_WL_).
+        1. Let _S_ be RemoveWaiters(_WL_, ℝ(_count_)).
+        1. For each element _W_ of _S_, do
+          1. Perform NotifyWaiter(_WL_, _W_).
+        1. Perform LeaveCriticalSection(_WL_).
+        1. Let _n_ be the number of elements in _S_.
+        1. Return 𝔽(_n_).
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
   </ins>
 </emu-clause>
