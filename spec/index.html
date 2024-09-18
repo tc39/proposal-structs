@@ -2705,11 +2705,9 @@ markEffects: true
       <p>This function puts the surrounding agent in a wait queue and suspends it until the mutex is unlocked or until the wait times out, returning a String differentiating those cases.</p>
       <p>It performs the following steps when called:</p>
       <emu-alg>
-        1. If _mutex_ is not an Object, throw a *TypeError* exception.
-        1. If _mutex_ does not have a [[MutexWaiterList]] internal slot, throw a *TypeError* exception.
+        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
         1. If _unlockToken_ not *undefined*, then
-          1. If _unlockToken_ is not an Object, throw a *TypeError* exception.
-          1. If _unlockToken_ does not have a [[LockedMutex]] internal slot, throw a *TypeError* exception.
+          1. Perform ? RequireInternalSlot(_unlockToken_, [[LockedMutex]]).
           1. If _unlockToken_.[[LockedMutex]] is not ~empty~, throw a *TypeError* exception.
         1. If _timeout_ is *undefined*, set _timeout_ to *+∞*<sub>𝔽</sub>.
         1. If _timeout_ is not a Number, throw a *TypeError* exception.
@@ -2728,11 +2726,9 @@ markEffects: true
       <h1>Atomics.Mutex.tryLock ( _mutex_ [ , _unlockToken_ ] )</h1>
       <p>It performs the following steps when called:</p>
       <emu-alg>
-        1. If _mutex_ is not an Object, throw a *TypeError* exception.
-        1. If _mutex_ does not have a [[MutexWaiterList]] internal slot, throw a *TypeError* exception.
+        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
         1. If _unlockToken_ not *undefined*, then
-          1. If _unlockToken_ is not an Object, throw a *TypeError* exception.
-          1. If _unlockToken_ does not have a [[LockedMutex]] internal slot, throw a *TypeError* exception.
+          1. Perform ? RequireInternalSlot(_unlockToken_, [[LockedMutex]]).
           1. If _unlockToken_.[[LockedMutex]] is not ~empty~, throw a *TypeError* exception.
         1. Let _WL_ be _mutex_.[[MutexWaiterList]].
         1. Perform EnterCriticalSection(_WL_).
@@ -2750,8 +2746,7 @@ markEffects: true
       <h1>Atomics.Mutex.withLock ( _mutex_, _callback_ [ , _thisArg_ ] )</h1>
       <p>It performs the following steps when called:</p>
       <emu-alg>
-        1. If _mutex_ is not an Object, throw a *TypeError* exception.
-        1. If _mutex_ does not have a [[MutexWaiterList]] internal slot, throw a *TypeError* exception.
+        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
         1. If IsCallable(_callback_) is *false*, throw a *TypeError* exception.
         1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
         1. Let _lockResult_ be LockMutex(_mutex_, +∞).
@@ -2787,8 +2782,7 @@ markEffects: true
       <p>This function performs the following steps when called:</p>
       <emu-alg>
         1. Let _token_ be the *this* value.
-        1. If _token_ is not an Object, throw a *TypeError* exception.
-        1. If _token_ does not have a [[LockedMutex]] internal slot, throw a *TypeError* exception.
+        1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
         1. Let _mutex_ be _token_.[[LockedMutex]].
         1. If _mutex_ is not ~empty~, then
           1. Set _token_.[[LockedMutex]] to ~empty~.
