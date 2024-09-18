@@ -2751,6 +2751,7 @@ markEffects: true
         1. If _mutex_ is not an Object, throw a *TypeError* exception.
         1. If _mutex_ does not have a [[MutexWaiterList]] internal slot, throw a *TypeError* exception.
         1. If IsCallable(_callback_) is *false*, throw a *TypeError* exception.
+        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
         1. Let _lockResult_ be LockMutex(_mutex_, +∞).
         1. Assert: _lockResult_ is ~acquired~.
         1. Let _callbackResult_ be ? Call(_callback_, _thisArg_, « »).
