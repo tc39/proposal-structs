@@ -2590,7 +2590,7 @@ markEffects: true
       <emu-alg>
         1. Assert: _mutex_ has a [[MutexWaiterList]] internal slot.
         1. If _token_ is *undefined*, then
-          1. Set _token_ to OrdinaryObjectCreate(%MutexUnlockTokenPrototype%, « [[LockedMutex]] »).
+          1. Set _token_ to OrdinaryObjectCreate(%Atomics.Mutex.UnlockToken.prototype%, « [[LockedMutex]] »).
         1. Else,
           1. Assert: _token_ has a [[LockedMutex]] internal slot.
           1. Assert: _token_.[[LockedMutex]] is ~empty~.
@@ -2700,6 +2700,11 @@ markEffects: true
       <p>Per-Realm prototypes, which is currently an open design question and not included in this draft, will give Mutexes a per-Realm prototype with built-in methods instead of static methods, and will also add support for the %Symbol.dispose%.</p>
     </emu-note>
 
+    <emu-clause id="sec-atomics.mutex.unlocktoken-prop">
+      <h1>Atomics.Mutex.UnlockToken ( )</h1>
+      <p>See <emu-xref href="#sec-atomics.mutex.unlocktoken"></emu-xref>.</p>
+    </emu-clause>
+
     <emu-clause id="sec-atomics.mutex.lock">
       <h1>Atomics.Mutex.lock ( _mutex_ [ , _unlockToken_ [ , _timeout_ ] ] )</h1>
       <p>This function puts the surrounding agent in a wait queue and suspends it until the mutex is unlocked or until the wait times out, returning a String differentiating those cases.</p>
@@ -2758,38 +2763,82 @@ markEffects: true
     </emu-clause>
   </emu-clause>
 
-  <emu-clause id="sec-mutexunlocktokenprototype">
-    <h1>The %MutexUnlockTokenPrototype% Object</h1>
-    <p>The <dfn>%MutexUnlockTokenPrototype%</dfn> object:</p>
-    <ul>
-      <li>has a [[Prototype]] internal slot whose value is %Object.prototype%.</li>
-      <li>is an ordinary object.</li>
-      <li>has the following properties:</li>
-    </ul>
+  <emu-clause id="sec-unlocktoken-objects">
+    <h1>UnlockToken Objects</h1>
+    <p>An UnlockToken is the unlock capability returned when a Mutex's lock is acquired. It can be reused. An uninitialized UnlockToken can be created by using the Atomics.Mutex.UnlockToken constructor.</p>
 
-    <emu-clause id="sec-get-%mutexunlocktokenprototype%.locked">
-      <h1>get %MutexUnlockTokenPrototype%.locked</h1>
-      <p>%MutexUnlockTokenPrototype%.locked is an accessor property whose set accessor is *undefined*. Its get accessor function performs the following steps when called:</p>
-      <emu-alg>
-        1. Let _token_ be the *this* value.
-        1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
-        1. If _token_.[[LockedMutex]] is ~empty~, return *false*; else return *true*.
-      </emu-alg>
+    <emu-clause id="sec-unlocktoken-constructor">
+      <h1>The UnlockToken Constructor</h1>
+      <p>The UnlockToken constructor:</p>
+      <ul>
+        <li>is <dfn>%Atomics.Mutex.UnlockToken%</dfn>.</li>
+        <li>is the initial value of the *"UnlockToken"* property of the %Atomics.Mutex% object.</li>
+        <li>creates and initializes a new UnlockToken when called as a constructor.</li>
+        <li>is not intended to be called as a function and will throw an exception when called in that manner.</li>
+      </ul>
+
+      <emu-clause id="sec-atomics.mutex.unlocktoken">
+        <h1>Atomics.Mutex.UnlockToken ( )</h1>
+        <p>This function performs the following steps when called:</p>
+        <emu-alg>
+          1. If NewTarget is *undefined*, throw a *TypeError* exception.
+          1. Let _token_ be OrdinaryObjectCreate(%Atomics.Mutex.UnlockToken.prototype%, « [[LockedMutex]] »).
+          1. Set _token_.[[LockedMutex]] to ~empty~.
+          1. Return _token_.
+        </emu-alg>
+      </emu-clause>
     </emu-clause>
 
-    <emu-clause id="sec-%mutexunlocktokenprototype%.unlock">
-      <h1>%MutexUnlockTokenPrototype%.unlock ( )</h1>
-      <p>This function performs the following steps when called:</p>
-      <emu-alg>
-        1. Let _token_ be the *this* value.
-        1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
-        1. Let _mutex_ be _token_.[[LockedMutex]].
-        1. If _mutex_ is not ~empty~, then
-          1. Set _token_.[[LockedMutex]] to ~empty~.
-          1. Perform UnlockMutex(_mutex_).
-          1. Return *true*.
-        1. Return *false*.
-      </emu-alg>
+    <emu-clause id="sec-properties-of-the-unlocktoken-constructor">
+      <h1>Properties of the UnlockToken Constructor</h1>
+      <p>The UnlockToken constructor:</p>
+      <ul>
+        <li>has a [[Prototype]] internal slot whose value is %Function.prototype%.</li>
+        <li>has the following properties:</li>
+      </ul>
+
+      <emu-clause id="sec-atomics.mutex.unlocktoken.prototype">
+        <h1>Atomics.Mutex.UnlockToken.prototype</h1>
+        <p>The initial value of `Atomics.Mutex.UnlockToken.prototype` is the UnlockToken prototype object.</p>
+        <p>This property has the attributes { [[Writable]]: *false*, [[Enumerable]]: *false*, [[Configurable]]: *false* }.</p>
+      </emu-clause>
+    </emu-clause>
+
+    <emu-clause id="sec-properties-of-the-unlocktoken-prototype">
+      <h1>Properties of the UnlockToken Prototype Object</h1>
+      <p>The <dfn>UnlockToken prototype</dfn> object:</p>
+      <ul>
+        <li>is <dfn>%Atomics.Mutex.UnlockToken.prototype%</dfn>.</li>
+        <li>has a [[Prototype]] internal slot whose value is %Object.prototype%.</li>
+        <li>is an ordinary object.</li>
+        <li>does not have a [[LockedMutex]] internal slot.</li>
+        <li>has the following properties:</li>
+      </ul>
+
+      <emu-clause id="sec-get-atomics.mutex.unlocktoken.prototype.locked">
+        <h1>get Atomics.Mutex.UnlockToken.prototype.locked</h1>
+        <p>`Atomics.Mutex.UnlockToken.locked` is an accessor property whose set accessor is *undefined*. Its get accessor function performs the following steps when called:</p>
+        <emu-alg>
+          1. Let _token_ be the *this* value.
+          1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
+          1. If _token_.[[LockedMutex]] is ~empty~, return *false*; else return *true*.
+        </emu-alg>
+      </emu-clause>
+
+      <emu-clause id="sec-atomics.mutex.unlocktoken.prototype.unlock">
+        <h1>Atomics.Mutex.UnlockToken.prototype.unlock ( )</h1>
+        <p>This function performs the following steps when called:</p>
+        <emu-alg>
+          1. Let _token_ be the *this* value.
+          1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
+          1. Let _mutex_ be _token_.[[LockedMutex]].
+          1. If _mutex_ is not ~empty~, then
+            1. Set _token_.[[LockedMutex]] to ~empty~.
+            1. Perform UnlockMutex(_mutex_).
+            1. Return *true*.
+          1. Return *false*.
+        </emu-alg>
+      </emu-clause>
     </emu-clause>
   </emu-clause>
 
