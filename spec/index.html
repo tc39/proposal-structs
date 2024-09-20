@@ -2727,8 +2727,8 @@ markEffects: true
       </emu-alg>
     </emu-clause>
 
-    <emu-clause id="sec-atomics.mutex.trylock">
-      <h1>Atomics.Mutex.tryLock ( _mutex_ [ , _unlockToken_ ] )</h1>
+    <emu-clause id="sec-atomics.mutex.lockifavailable">
+      <h1>Atomics.Mutex.lockIfAvailable ( _mutex_ [ , _unlockToken_ ] )</h1>
       <p>It performs the following steps when called:</p>
       <emu-alg>
         1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
