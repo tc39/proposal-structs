@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.code === 'Escape') {
         sdoBox.deactivate();
       }
-    })
+    }),
   );
 });
 
@@ -94,11 +94,11 @@ function Search(menu) {
 
   this.$searchBox.addEventListener(
     'keydown',
-    debounce(this.searchBoxKeydown.bind(this), { stopPropagation: true })
+    debounce(this.searchBoxKeydown.bind(this), { stopPropagation: true }),
   );
   this.$searchBox.addEventListener(
     'keyup',
-    debounce(this.searchBoxKeyup.bind(this), { stopPropagation: true })
+    debounce(this.searchBoxKeyup.bind(this), { stopPropagation: true }),
   );
 
   // Perform an initial search if the box is not empty.
@@ -298,7 +298,6 @@ Search.prototype.displayResults = function (results) {
       }
 
       if (text) {
-        // prettier-ignore
         html += `<li class=menu-search-result-${cssClass}><a href="${makeLinkToId(id)}">${text}</a></li>`;
       }
     });
@@ -350,6 +349,14 @@ function Menu() {
   this._pinnedIds = {};
   this.loadPinEntries();
 
+  // unpin all button
+  document
+    .querySelector('#menu-pins .unpin-all')
+    .addEventListener('click', this.unpinAll.bind(this));
+
+  // individual unpinning buttons
+  this.$pinList.addEventListener('click', this.pinListClick.bind(this));
+
   // toggle menu
   this.$toggle.addEventListener('click', this.toggle.bind(this));
 
@@ -399,8 +406,8 @@ Menu.prototype.documentKeydown = function (e) {
   e.stopPropagation();
   if (e.keyCode === 80) {
     this.togglePinEntry();
-  } else if (e.keyCode > 48 && e.keyCode < 58) {
-    this.selectPin(e.keyCode - 49);
+  } else if (e.keyCode >= 48 && e.keyCode < 58) {
+    this.selectPin((e.keyCode - 9) % 10);
   }
 };
 
@@ -450,23 +457,66 @@ Menu.prototype.revealInToc = function (path) {
 };
 
 function findActiveClause(root, path) {
-  let clauses = getChildClauses(root);
   path = path || [];
 
-  for (let $clause of clauses) {
-    let rect = $clause.getBoundingClientRect();
-    let $header = $clause.querySelector('h1');
-    let marginTop = Math.max(
-      parseInt(getComputedStyle($clause)['margin-top']),
-      parseInt(getComputedStyle($header)['margin-top'])
-    );
+  let visibleClauses = getVisibleClauses(root, path);
+  let midpoint = Math.floor(window.innerHeight / 2);
 
-    if (rect.top - marginTop <= 1 && rect.bottom > 0) {
-      return findActiveClause($clause, path.concat($clause)) || path;
+  for (let [$clause, path] of visibleClauses) {
+    let { top: clauseTop, bottom: clauseBottom } = $clause.getBoundingClientRect();
+    let isFullyVisibleAboveTheFold =
+      clauseTop > 0 && clauseTop < midpoint && clauseBottom < window.innerHeight;
+    if (isFullyVisibleAboveTheFold) {
+      return path;
+    }
+  }
+
+  visibleClauses.sort(([, pathA], [, pathB]) => pathB.length - pathA.length);
+  for (let [$clause, path] of visibleClauses) {
+    let { top: clauseTop, bottom: clauseBottom } = $clause.getBoundingClientRect();
+    let $header = $clause.querySelector('h1');
+    let clauseStyles = getComputedStyle($clause);
+    let marginTop = Math.max(
+      0,
+      parseInt(clauseStyles['margin-top']),
+      parseInt(getComputedStyle($header)['margin-top']),
+    );
+    let marginBottom = Math.max(0, parseInt(clauseStyles['margin-bottom']));
+    let crossesMidpoint =
+      clauseTop - marginTop <= midpoint && clauseBottom + marginBottom >= midpoint;
+    if (crossesMidpoint) {
+      return path;
     }
   }
 
   return path;
+}
+
+function getVisibleClauses(root, path) {
+  let childClauses = getChildClauses(root);
+  path = path || [];
+
+  let result = [];
+
+  let seenVisibleClause = false;
+  for (let $clause of childClauses) {
+    let { top: clauseTop, bottom: clauseBottom } = $clause.getBoundingClientRect();
+    let isPartiallyVisible =
+      (clauseTop > 0 && clauseTop < window.innerHeight) ||
+      (clauseBottom > 0 && clauseBottom < window.innerHeight) ||
+      (clauseTop < 0 && clauseBottom > window.innerHeight);
+
+    if (isPartiallyVisible) {
+      seenVisibleClause = true;
+      let innerPath = path.concat($clause);
+      result.push([$clause, innerPath]);
+      result.push(...getVisibleClauses($clause, innerPath));
+    } else if (seenVisibleClause) {
+      break;
+    }
+  }
+
+  return result;
 }
 
 function* getChildClauses(root) {
@@ -519,6 +569,7 @@ Menu.prototype.addPinEntry = function (id) {
     return;
   }
 
+  let text;
   if (entry.type === 'clause') {
     let prefix;
     if (entry.number) {
@@ -526,11 +577,13 @@ Menu.prototype.addPinEntry = function (id) {
     } else {
       prefix = '';
     }
-    // prettier-ignore
-    this.$pinList.innerHTML += `<li><a href="${makeLinkToId(entry.id)}">${prefix}${entry.titleHTML}</a></li>`;
+    text = `${prefix}${entry.titleHTML}`;
   } else {
-    this.$pinList.innerHTML += `<li><a href="${makeLinkToId(entry.id)}">${getKey(entry)}</a></li>`;
+    text = getKey(entry);
   }
+
+  let link = `<a href="${makeLinkToId(entry.id)}">${text}</a>`;
+  this.$pinList.innerHTML += `<li data-section-id="${id}">${link}<button class="unpin">\u{2716}</button></li>`;
 
   if (Object.keys(this._pinnedIds).length === 0) {
     this.showPins();
@@ -540,7 +593,7 @@ Menu.prototype.addPinEntry = function (id) {
 };
 
 Menu.prototype.removePinEntry = function (id) {
-  let item = this.$pinList.querySelector(`a[href="${makeLinkToId(id)}"]`).parentNode;
+  let item = this.$pinList.querySelector(`li[data-section-id="${id}"]`);
   this.$pinList.removeChild(item);
   delete this._pinnedIds[id];
   if (Object.keys(this._pinnedIds).length === 0) {
@@ -548,6 +601,21 @@ Menu.prototype.removePinEntry = function (id) {
   }
 
   this.persistPinEntries();
+};
+
+Menu.prototype.unpinAll = function () {
+  for (let id of Object.keys(this._pinnedIds)) {
+    this.removePinEntry(id);
+  }
+};
+
+Menu.prototype.pinListClick = function (event) {
+  if (event?.target?.classList.contains('unpin')) {
+    let id = event.target.parentNode.dataset.sectionId;
+    if (id) {
+      this.removePinEntry(id);
+    }
+  }
 };
 
 Menu.prototype.persistPinEntries = function () {
@@ -588,6 +656,7 @@ Menu.prototype.togglePinEntry = function (id) {
 };
 
 Menu.prototype.selectPin = function (num) {
+  if (num >= this.$pinList.children.length) return;
   document.location = this.$pinList.children[num].children[0].href;
 };
 
@@ -763,6 +832,10 @@ let referencePane = {
     this.$header.appendChild(this.$headerText);
     this.$headerRefId = document.createElement('a');
     this.$header.appendChild(this.$headerRefId);
+    this.$header.addEventListener('pointerdown', e => {
+      this.dragStart(e);
+    });
+
     this.$closeButton = document.createElement('span');
     this.$closeButton.setAttribute('id', 'references-pane-close');
     this.$closeButton.addEventListener('click', () => {
@@ -771,18 +844,20 @@ let referencePane = {
     this.$header.appendChild(this.$closeButton);
 
     this.$pane.appendChild(this.$header);
-    let tableContainer = document.createElement('div');
-    tableContainer.setAttribute('id', 'references-pane-table-container');
+    this.$tableContainer = document.createElement('div');
+    this.$tableContainer.setAttribute('id', 'references-pane-table-container');
 
     this.$table = document.createElement('table');
     this.$table.setAttribute('id', 'references-pane-table');
 
     this.$tableBody = this.$table.createTBody();
 
-    tableContainer.appendChild(this.$table);
-    this.$pane.appendChild(tableContainer);
+    this.$tableContainer.appendChild(this.$table);
+    this.$pane.appendChild(this.$tableContainer);
 
-    menu.$specContainer.appendChild(this.$container);
+    if (menu != null) {
+      menu.$specContainer.appendChild(this.$container);
+    }
   },
 
   activate() {
@@ -802,7 +877,7 @@ let referencePane = {
     let previousId;
     let previousCell;
     let dupCount = 0;
-    this.$headerRefId.textContent = '#' + entry.id;
+    this.$headerRefId.innerHTML = getKey(entry);
     this.$headerRefId.setAttribute('href', makeLinkToId(entry.id));
     this.$headerRefId.style.display = 'inline';
     (entry.referencingIds || [])
@@ -833,6 +908,7 @@ let referencePane = {
     this.$table.removeChild(this.$tableBody);
     this.$tableBody = newBody;
     this.$table.appendChild(this.$tableBody);
+    this.autoSize();
   },
 
   showSDOs(sdos, alternativeId) {
@@ -850,7 +926,6 @@ let referencePane = {
       e.parentNode.replaceChild(document.createTextNode(e.textContent), e);
     });
 
-    // prettier-ignore
     this.$headerText.innerHTML = `Syntax-Directed Operations for<br><a href="${makeLinkToId(alternativeId)}" class="menu-pane-header-production"><emu-nt>${parentName}</emu-nt> ${colons.outerHTML} </a>`;
     this.$headerText.querySelector('a').append(rhs);
     this.showSDOsBody(sdos, alternativeId);
@@ -879,6 +954,34 @@ let referencePane = {
     this.$table.removeChild(this.$tableBody);
     this.$tableBody = newBody;
     this.$table.appendChild(this.$tableBody);
+    this.autoSize();
+  },
+
+  autoSize() {
+    this.$tableContainer.style.height =
+      Math.min(250, this.$table.getBoundingClientRect().height) + 'px';
+  },
+
+  dragStart(pointerDownEvent) {
+    let startingMousePos = pointerDownEvent.clientY;
+    let startingHeight = this.$tableContainer.getBoundingClientRect().height;
+    let moveListener = pointerMoveEvent => {
+      if (pointerMoveEvent.buttons === 0) {
+        removeListeners();
+        return;
+      }
+      let desiredHeight = startingHeight - (pointerMoveEvent.clientY - startingMousePos);
+      this.$tableContainer.style.height = Math.max(0, desiredHeight) + 'px';
+    };
+    let listenerOptions = { capture: true, passive: true };
+    let removeListeners = () => {
+      document.removeEventListener('pointermove', moveListener, listenerOptions);
+      this.$header.removeEventListener('pointerup', removeListeners, listenerOptions);
+      this.$header.removeEventListener('pointercancel', removeListeners, listenerOptions);
+    };
+    document.addEventListener('pointermove', moveListener, listenerOptions);
+    this.$header.addEventListener('pointerup', removeListeners, listenerOptions);
+    this.$header.addEventListener('pointercancel', removeListeners, listenerOptions);
   },
 };
 
@@ -909,7 +1012,9 @@ let Toolbox = {
       referencePane.showReferencesFor(this.entry);
     });
     this.$container.appendChild(this.$permalink);
+    this.$container.appendChild(document.createTextNode(' '));
     this.$container.appendChild(this.$pinLink);
+    this.$container.appendChild(document.createTextNode(' '));
     this.$container.appendChild(this.$refsLink);
     document.body.appendChild(this.$outer);
   },
@@ -1087,13 +1192,16 @@ function doShortcut(e) {
 }
 
 function init() {
+  if (document.getElementById('menu') == null) {
+    return;
+  }
   menu = new Menu();
   let $container = document.getElementById('spec-container');
   $container.addEventListener(
     'mouseover',
     debounce(e => {
       Toolbox.activateIfMouseOver(e);
-    })
+    }),
   );
   document.addEventListener(
     'keydown',
@@ -1104,7 +1212,7 @@ function init() {
         }
         document.getElementById('shortcuts-help').classList.remove('active');
       }
-    })
+    }),
   );
 }
 
@@ -1160,12 +1268,40 @@ function getActiveTocPaths() {
   return [...menu.$menu.querySelectorAll('.active')].map(getTocPath).filter(p => p != null);
 }
 
-function loadStateFromSessionStorage() {
-  if (!window.sessionStorage || typeof menu === 'undefined' || window.navigating) {
+function initTOCExpansion(visibleItemLimit) {
+  // Initialize to a reasonable amount of TOC expansion:
+  // * Expand any full-breadth nesting level up to visibleItemLimit.
+  // * Expand any *single-item* level while under visibleItemLimit (even if that pushes over it).
+
+  // Limit to initialization by bailing out if any parent item is already expanded.
+  const tocItems = Array.from(document.querySelectorAll('#menu-toc li'));
+  if (tocItems.some(li => li.classList.contains('active') && li.querySelector('li'))) {
     return;
   }
-  if (sessionStorage.referencePaneState != null) {
-    let state = JSON.parse(sessionStorage.referencePaneState);
+
+  const selfAndSiblings = maybe => Array.from(maybe?.parentNode.children ?? []);
+  let currentLevelItems = selfAndSiblings(tocItems[0]);
+  let availableCount = visibleItemLimit - currentLevelItems.length;
+  while (availableCount > 0 && currentLevelItems.length) {
+    const nextLevelItems = currentLevelItems.flatMap(li => selfAndSiblings(li.querySelector('li')));
+    availableCount -= nextLevelItems.length;
+    if (availableCount > 0 || currentLevelItems.length === 1) {
+      // Expand parent items of the next level down (i.e., current-level items with children).
+      for (const ol of new Set(nextLevelItems.map(li => li.parentNode))) {
+        ol.closest('li').classList.add('active');
+      }
+    }
+    currentLevelItems = nextLevelItems;
+  }
+}
+
+function initState() {
+  if (typeof menu === 'undefined' || window.navigating) {
+    return;
+  }
+  const storage = typeof sessionStorage !== 'undefined' ? sessionStorage : Object.create(null);
+  if (storage.referencePaneState != null) {
+    let state = JSON.parse(storage.referencePaneState);
     if (state != null) {
       if (state.type === 'ref') {
         let entry = menu.search.biblio.byId[state.id];
@@ -1179,39 +1315,36 @@ function loadStateFromSessionStorage() {
           referencePane.showSDOsBody(sdos, state.id);
         }
       }
-      delete sessionStorage.referencePaneState;
+      delete storage.referencePaneState;
     }
   }
 
-  if (sessionStorage.activeTocPaths != null) {
-    document
-      .getElementById('menu-toc')
-      .querySelectorAll('.active')
-      .forEach(e => {
-        e.classList.remove('active');
-      });
-    let active = JSON.parse(sessionStorage.activeTocPaths);
+  if (storage.activeTocPaths != null) {
+    document.querySelectorAll('#menu-toc li.active').forEach(li => li.classList.remove('active'));
+    let active = JSON.parse(storage.activeTocPaths);
     active.forEach(activateTocPath);
-    delete sessionStorage.activeTocPaths;
+    delete storage.activeTocPaths;
+  } else {
+    initTOCExpansion(20);
   }
 
-  if (sessionStorage.searchValue != null) {
-    let value = JSON.parse(sessionStorage.searchValue);
+  if (storage.searchValue != null) {
+    let value = JSON.parse(storage.searchValue);
     menu.search.$searchBox.value = value;
     menu.search.search(value);
-    delete sessionStorage.searchValue;
+    delete storage.searchValue;
   }
 
-  if (sessionStorage.tocScroll != null) {
-    let tocScroll = JSON.parse(sessionStorage.tocScroll);
+  if (storage.tocScroll != null) {
+    let tocScroll = JSON.parse(storage.tocScroll);
     menu.$toc.scrollTop = tocScroll;
-    delete sessionStorage.tocScroll;
+    delete storage.tocScroll;
   }
 }
 
-document.addEventListener('DOMContentLoaded', loadStateFromSessionStorage);
+document.addEventListener('DOMContentLoaded', initState);
 
-window.addEventListener('pageshow', loadStateFromSessionStorage);
+window.addEventListener('pageshow', initState);
 
 window.addEventListener('beforeunload', () => {
   if (!window.sessionStorage || typeof menu === 'undefined') {
@@ -1224,36 +1357,253 @@ window.addEventListener('beforeunload', () => {
 });
 
 'use strict';
-let decimalBullet = Array.from({ length: 100 }, (a, i) => '' + (i + 1));
-let alphaBullet = Array.from({ length: 26 }, (a, i) => String.fromCharCode('a'.charCodeAt(0) + i));
 
-// prettier-ignore
-let romanBullet = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx', 'xxi', 'xxii', 'xxiii', 'xxiv', 'xxv'];
-// prettier-ignore
-let bullets = [decimalBullet, alphaBullet, romanBullet, decimalBullet, alphaBullet, romanBullet];
+// Manually prefix algorithm step list items with hidden counter representations
+// corresponding with their markers so they get selected and copied with content.
+// We read list-style-type to avoid divergence with the style sheet, but
+// for efficiency assume that all lists at the same nesting depth use the same
+// style (except for those associated with replacement steps).
+// We also precompute some initial items for each supported style type.
+// https://w3c.github.io/csswg-drafts/css-counter-styles/
 
-function addStepNumberText(ol, parentIndex) {
-  for (let i = 0; i < ol.children.length; ++i) {
-    let child = ol.children[i];
-    let index = parentIndex.concat([i]);
-    let applicable = bullets[Math.min(index.length - 1, 5)];
-    let span = document.createElement('span');
-    span.textContent = (applicable[i] || '?') + '. ';
-    span.style.fontSize = '0';
-    span.setAttribute('aria-hidden', 'true');
-    child.prepend(span);
-    let sublist = child.querySelector('ol');
-    if (sublist != null) {
-      addStepNumberText(sublist, index);
+const lowerLetters = Array.from({ length: 26 }, (_, i) =>
+  String.fromCharCode('a'.charCodeAt(0) + i),
+);
+// Implement the lower-alpha 'alphabetic' algorithm,
+// adjusting for indexing from 0 rather than 1.
+// https://w3c.github.io/csswg-drafts/css-counter-styles/#simple-alphabetic
+// https://w3c.github.io/csswg-drafts/css-counter-styles/#alphabetic-system
+const lowerAlphaTextForIndex = i => {
+  let S = '';
+  for (const N = lowerLetters.length; i >= 0; i--) {
+    S = lowerLetters[i % N] + S;
+    i = Math.floor(i / N);
+  }
+  return S;
+};
+
+const weightedLowerRomanSymbols = Object.entries({
+  m: 1000,
+  cm: 900,
+  d: 500,
+  cd: 400,
+  c: 100,
+  xc: 90,
+  l: 50,
+  xl: 40,
+  x: 10,
+  ix: 9,
+  v: 5,
+  iv: 4,
+  i: 1,
+});
+// Implement the lower-roman 'additive' algorithm,
+// adjusting for indexing from 0 rather than 1.
+// https://w3c.github.io/csswg-drafts/css-counter-styles/#simple-numeric
+// https://w3c.github.io/csswg-drafts/css-counter-styles/#additive-system
+const lowerRomanTextForIndex = i => {
+  let value = i + 1;
+  let S = '';
+  for (const [symbol, weight] of weightedLowerRomanSymbols) {
+    if (!value) break;
+    if (weight > value) continue;
+    const reps = Math.floor(value / weight);
+    S += symbol.repeat(reps);
+    value -= weight * reps;
+  }
+  return S;
+};
+
+// Memoize pure index-to-text functions with an exposed cache for fast retrieval.
+const makeCounter = (pureGetTextForIndex, precomputeCount = 30) => {
+  const cache = Array.from({ length: precomputeCount }, (_, i) => pureGetTextForIndex(i));
+  const getTextForIndex = i => {
+    if (i >= cache.length) cache[i] = pureGetTextForIndex(i);
+    return cache[i];
+  };
+  return { getTextForIndex, cache };
+};
+
+const counterByStyle = {
+  __proto__: null,
+  decimal: makeCounter(i => String(i + 1)),
+  'lower-alpha': makeCounter(lowerAlphaTextForIndex),
+  'upper-alpha': makeCounter(i => lowerAlphaTextForIndex(i).toUpperCase()),
+  'lower-roman': makeCounter(lowerRomanTextForIndex),
+  'upper-roman': makeCounter(i => lowerRomanTextForIndex(i).toUpperCase()),
+};
+const fallbackCounter = makeCounter(() => '?');
+const counterByDepth = [];
+
+function addStepNumberText(
+  ol,
+  depth = 0,
+  indent = '',
+  special = [...ol.classList].some(c => c.startsWith('nested-')),
+) {
+  let counter = !special && counterByDepth[depth];
+  if (!counter) {
+    const counterStyle = getComputedStyle(ol)['list-style-type'];
+    counter = counterByStyle[counterStyle];
+    if (!counter) {
+      console.warn('unsupported list-style-type', {
+        ol,
+        counterStyle,
+        id: ol.closest('[id]')?.getAttribute('id'),
+      });
+      counterByStyle[counterStyle] = fallbackCounter;
+      counter = fallbackCounter;
+    }
+    if (!special) {
+      counterByDepth[depth] = counter;
     }
   }
+  const { cache, getTextForIndex } = counter;
+  let i = (Number(ol.getAttribute('start')) || 1) - 1;
+  for (const li of ol.children) {
+    const marker = document.createElement('span');
+    const markerText = i < cache.length ? cache[i] : getTextForIndex(i);
+    const extraIndent = ' '.repeat(markerText.length + 2);
+    marker.textContent = `${indent}${markerText}. `;
+    marker.setAttribute('aria-hidden', 'true');
+    marker.setAttribute('class', 'list-marker');
+    const attributesContainer = li.querySelector('.attributes-tag');
+    if (attributesContainer == null) {
+      li.prepend(marker);
+    } else {
+      attributesContainer.insertAdjacentElement('afterend', marker);
+    }
+    for (const sublist of li.querySelectorAll(':scope > ol')) {
+      addStepNumberText(sublist, depth + 1, indent + extraIndent, special);
+    }
+    i++;
+  }
 }
+
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('emu-alg > ol').forEach(ol => {
-    addStepNumberText(ol, []);
+    addStepNumberText(ol);
+  });
+});
+
+// Omit indendation when copying a single algorithm step.
+document.addEventListener('copy', evt => {
+  // Construct a DOM from the selection.
+  const doc = document.implementation.createHTMLDocument('');
+  const domRoot = doc.createElement('div');
+  const html = evt.clipboardData.getData('text/html');
+  if (html) {
+    domRoot.innerHTML = html;
+  } else {
+    const selection = getSelection();
+    const singleRange = selection?.rangeCount === 1 && selection.getRangeAt(0);
+    const container = singleRange?.commonAncestorContainer;
+    if (!container?.querySelector?.('.list-marker')) {
+      return;
+    }
+    domRoot.append(singleRange.cloneContents());
+  }
+
+  // Preserve the indentation if there is no hidden list marker, or if selection
+  // of more than one step is indicated by either multiple such markers or by
+  // visible text before the first one.
+  const listMarkers = domRoot.querySelectorAll('.list-marker');
+  if (listMarkers.length !== 1) {
+    return;
+  }
+  const treeWalker = document.createTreeWalker(domRoot, undefined, {
+    acceptNode(node) {
+      return node.nodeType === Node.TEXT_NODE || node === listMarkers[0]
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_SKIP;
+    },
+  });
+  while (treeWalker.nextNode()) {
+    const node = treeWalker.currentNode;
+    if (node.nodeType === Node.ELEMENT_NODE) break;
+    if (/\S/u.test(node.data)) return;
+  }
+
+  // Strip leading indentation from the plain text representation.
+  evt.clipboardData.setData('text/plain', domRoot.textContent.trimStart());
+  if (!html) {
+    evt.clipboardData.setData('text/html', domRoot.innerHTML);
+  }
+  evt.preventDefault();
+});
+
+'use strict';
+
+// Update superscripts to not suffer misinterpretation when copied and pasted as plain text.
+// For example,
+// * Replace `10<sup>3</sup>` with
+//   `10<span aria-hidden="true">**</span><sup>3</sup>`
+//   so it gets pasted as `10**3` rather than `103`.
+// * Replace `10<sup>-<var>x</var></sup>` with
+//   `10<span aria-hidden="true">**</span><sup>-<var>x</var></sup>`
+//   so it gets pasted as `10**-x` rather than `10-x`.
+// * Replace `2<sup><var>a</var> + 1</sup>` with
+//   `2<span …>**(</span><sup><var>a</var> + 1</sup><span …>)</span>`
+//   so it gets pasted as `2**(a + 1)` rather than `2a + 1`.
+
+function makeExponentPlainTextSafe(sup) {
+  // Change a <sup> only if it appears to be an exponent:
+  // * text-only and contains only mathematical content (not e.g. `1<sup>st</sup>`)
+  // * contains only <var>s and internal links (e.g.
+  //   `2<sup><emu-xref><a href="#ℝ">ℝ</a></emu-xref>(_y_)</sup>`)
+  const isText = [...sup.childNodes].every(node => node.nodeType === 3);
+  const text = sup.textContent;
+  if (isText) {
+    if (!/^[0-9. 𝔽ℝℤ()=*×/÷±+\u2212-]+$/u.test(text)) {
+      return;
+    }
+  } else {
+    if (sup.querySelector('*:not(var, emu-xref, :scope emu-xref a)')) {
+      return;
+    }
+  }
+
+  let prefix = '**';
+  let suffix = '';
+
+  // Add wrapping parentheses unless they are already present
+  // or this is a simple (possibly signed) integer or single-variable exponent.
+  const skipParens =
+    /^[±+\u2212-]?(?:[0-9]+|\p{ID_Start}\p{ID_Continue}*)$/u.test(text) ||
+    // Split on parentheses and remember them; the resulting parts must
+    // start and end empty (i.e., with open/close parentheses)
+    // and increase depth to 1 only at the first parenthesis
+    // to e.g. wrap `(a+1)*(b+1)` but not `((a+1)*(b+1))`.
+    text
+      .trim()
+      .split(/([()])/g)
+      .reduce((depth, s, i, parts) => {
+        if (s === '(') {
+          return depth > 0 || i === 1 ? depth + 1 : NaN;
+        } else if (s === ')') {
+          return depth > 0 ? depth - 1 : NaN;
+        } else if (s === '' || (i > 0 && i < parts.length - 1)) {
+          return depth;
+        }
+        return NaN;
+      }, 0) === 0;
+  if (!skipParens) {
+    prefix += '(';
+    suffix += ')';
+  }
+
+  sup.insertAdjacentHTML('beforebegin', `<span aria-hidden="true">${prefix}</span>`);
+  if (suffix) {
+    sup.insertAdjacentHTML('afterend', `<span aria-hidden="true">${suffix}</span>`);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('sup:not(.text)').forEach(sup => {
+    makeExponentPlainTextSafe(sup);
   });
 });
 
 let sdoMap = JSON.parse(`{"prod-EyLs88eE":{"StructDefinitionEvaluation":{"clause":"1.1.6","ids":["prod-COgM9bSC"]}},"prod-e2ZCr45r":{"BindingStructDeclarationEvaluation":{"clause":"1.1.7","ids":["prod-s2PPFPsU"]},"Evaluation":{"clause":"1.1.8","ids":["prod-CJdKR16y"]}},"prod-sut0XC0z":{"BindingStructDeclarationEvaluation":{"clause":"1.1.7","ids":["prod-3t_ysv4H"]}},"prod-jM8QIEAP":{"Evaluation":{"clause":"1.1.8","ids":["prod-Zme3aNfH","prod-Zjo3aZoe"]}},"prod-6RgYaWnz":{"SharedStructDefinitionEvaluation":{"clause":"2.2.6","ids":["prod-BhzXWGRY"]}},"prod-OXIfDnE4":{"Evaluation":{"clause":"2.2.8","ids":["prod-a7FVdFNf"]}},"prod-5r_d63Jv":{"Evaluation":{"clause":"2.2.8","ids":["prod-hQkzKJ35","prod-DuGDGqHy"]}}}`);
-let biblio = JSON.parse(`{"refsByClause":{"sec-struct-method-exotic-objects":["_ref_0","_ref_30","_ref_31","_ref_32","_ref_33","_ref_34"],"sec-structmethodcreate":["_ref_1","_ref_2","_ref_36"],"sec-runtime-semantics-sharedstructdefinitionevaluation":["_ref_3","_ref_4","_ref_5","_ref_6","_ref_7","_ref_8","_ref_79","_ref_80","_ref_81","_ref_82","_ref_83","_ref_84","_ref_85","_ref_170","_ref_171","_ref_172","_ref_173","_ref_174","_ref_175","_ref_176"],"sec-sharedarraycreate":["_ref_9","_ref_10","_ref_11","_ref_12","_ref_13","_ref_14","_ref_128","_ref_129","_ref_130","_ref_131","_ref_132"],"sec-initializestructinstancefieldsandbrands":["_ref_15","_ref_16","_ref_17","_ref_18","_ref_19"],"sec-runstructinstancefieldinitializers":["_ref_20","_ref_21"],"sec-runtime-semantics-structdefinitionevaluation":["_ref_22","_ref_23","_ref_24","_ref_141","_ref_142","_ref_143","_ref_144","_ref_145","_ref_146","_ref_147"],"sec-runtime-semantics-bindingstructdeclarationevaluation":["_ref_25","_ref_26","_ref_148","_ref_149","_ref_150","_ref_151","_ref_152","_ref_153"],"sec-struct-definitions-runtime-semantics-evaluation":["_ref_27","_ref_28","_ref_29","_ref_154","_ref_155","_ref_156","_ref_157","_ref_158","_ref_159","_ref_160","_ref_161"],"sec-struct-method-exotic-objects-call-thisargument-argumentslist":["_ref_35"],"sec-runtime-semantics-definemethod":["_ref_37"],"sec-exports-runtime-semantics-evaluation":["_ref_38","_ref_163","_ref_164","_ref_165"],"sec-shared-struct-exotic-objects":["_ref_39"],"sec-entersharedstructcreationcriticalsection":["_ref_40","_ref_41","_ref_42"],"sec-leavesharedstructcreationcriticalsection":["_ref_43","_ref_44"],"sec-fictional-criticalsection":["_ref_45","_ref_46"],"sec-readsharedstructfield":["_ref_47","_ref_48","_ref_49","_ref_50","_ref_51","_ref_52"],"sec-writesharedstructfield":["_ref_53","_ref_54","_ref_55","_ref_56"],"sec-shared-struct-getownproperty":["_ref_57","_ref_58"],"sec-shared-struct-defineownproperty":["_ref_59","_ref_60","_ref_61"],"sec-shared-struct-hasproperty":["_ref_62","_ref_63"],"sec-shared-struct-set":["_ref_64","_ref_65"],"sec-shared-struct-delete":["_ref_66"],"sec-struct-definitions-static-semantics-containsinstanceprivateidentifier":["_ref_67","_ref_68","_ref_69"],"sec-struct-definitions-static-semantics-containsinstancemethod":["_ref_70","_ref_71","_ref_72"],"sec-shared-struct-definitions-static-semantics-early-errors":["_ref_73","_ref_74"],"sec-canbesharedacrossagents":["_ref_75"],"sec-definesharedstructfield":["_ref_76","_ref_77","_ref_78"],"sec-runtime-semantics-bindingsharedstructdeclarationevaluation":["_ref_86","_ref_87","_ref_177","_ref_178","_ref_179","_ref_180","_ref_181","_ref_182"],"sec-shared-struct-definitions-runtime-semantics-evaluation":["_ref_88","_ref_89","_ref_90","_ref_183","_ref_184","_ref_185","_ref_186","_ref_187","_ref_188","_ref_189","_ref_190"],"sec-atomiccompareexchangeinsharedstruct":["_ref_91","_ref_92","_ref_93","_ref_94","_ref_95","_ref_96","_ref_97","_ref_98"],"sec-atomicreadmodifywriteinsharedstruct":["_ref_99","_ref_100","_ref_101","_ref_102","_ref_103","_ref_104","_ref_105"],"sec-atomics.compareexchange-struct":["_ref_106","_ref_107","_ref_108"],"sec-atomics.exchange-struct":["_ref_109","_ref_110"],"sec-atomics.load-struct":["_ref_111","_ref_112"],"sec-atomics.store-struct":["_ref_113","_ref_114","_ref_115"],"sec-memory-model-fundamentals":["_ref_116","_ref_117","_ref_118","_ref_119","_ref_120","_ref_121","_ref_122","_ref_123","_ref_124"],"sec-shared-structs":["_ref_125"],"sec-shared-arrays":["_ref_126","_ref_127"],"sec-sharedarray":["_ref_133","_ref_134","_ref_135","_ref_136"],"sec-structs-syntax-and-eval":["_ref_137","_ref_138","_ref_139","_ref_140"],"sec-changes-to-modules":["_ref_162"],"sec-shared-structs-syntax-and-eval":["_ref_166","_ref_167","_ref_168","_ref_169"]},"entries":[{"type":"clause","id":"intro","titleHTML":"Structs, Shared Structs, Unsafe Blocks, and Synchronization Primitives","number":""},{"type":"production","id":"prod-StructDeclaration","name":"StructDeclaration"},{"type":"production","id":"prod-StructExpression","name":"StructExpression"},{"type":"production","id":"prod-StructTail","name":"StructTail","referencingIds":["_ref_137","_ref_138","_ref_139","_ref_148","_ref_149","_ref_151","_ref_152","_ref_154","_ref_156","_ref_157","_ref_159","_ref_160","_ref_178"]},{"type":"production","id":"prod-StructBody","name":"StructBody","referencingIds":["_ref_140","_ref_141","_ref_142","_ref_143","_ref_144","_ref_145","_ref_146","_ref_147","_ref_175"]},{"type":"clause","id":"sec-struct-definitions-static-semantics-early-errors","titleHTML":"Static Semantics: Early Errors","number":"1.1.1"},{"type":"op","aoid":"DefineStructField","refId":"sec-definestructfield"},{"type":"clause","id":"sec-definestructfield","title":"DefineStructField ( receiver, fieldRecord )","titleHTML":"DefineStructField ( <var>receiver</var>, <var>fieldRecord</var> )","number":"1.1.2","referencingIds":["_ref_19"]},{"type":"op","aoid":"InitializeStructInstanceFieldsAndBrand","refId":"sec-initializestructinstancefieldsandbrands"},{"type":"clause","id":"sec-initializestructinstancefieldsandbrands","title":"InitializeStructInstanceFieldsAndBrand ( receiver, constructor )","titleHTML":"InitializeStructInstanceFieldsAndBrand ( <var>receiver</var>, <var>constructor</var> )","number":"1.1.3","referencingIds":["_ref_15","_ref_23","_ref_83"]},{"type":"op","aoid":"RunFieldInitializer","refId":"sec-runfieldinitializer"},{"type":"clause","id":"sec-runfieldinitializer","title":"RunFieldInitializer ( receiver, fieldRecord )","titleHTML":"RunFieldInitializer ( <var>receiver</var>, <var>fieldRecord</var> )","number":"1.1.4","referencingIds":["_ref_21"]},{"type":"op","aoid":"RunStructInstanceFieldInitializers","refId":"sec-runstructinstancefieldinitializers"},{"type":"clause","id":"sec-runstructinstancefieldinitializers","title":"RunStructInstanceFieldInitializers ( receiver, constructor )","titleHTML":"RunStructInstanceFieldInitializers ( <var>receiver</var>, <var>constructor</var> )","number":"1.1.5","referencingIds":["_ref_20","_ref_24","_ref_85"]},{"type":"op","aoid":"StructDefinitionEvaluation","refId":"sec-runtime-semantics-structdefinitionevaluation"},{"type":"clause","id":"sec-runtime-semantics-structdefinitionevaluation","titleHTML":"Runtime Semantics: StructDefinitionEvaluation","number":"1.1.6","referencingIds":["_ref_25","_ref_26","_ref_28","_ref_29"]},{"type":"op","aoid":"BindingStructDeclarationEvaluation","refId":"sec-runtime-semantics-bindingstructdeclarationevaluation"},{"type":"clause","id":"sec-runtime-semantics-bindingstructdeclarationevaluation","titleHTML":"Runtime Semantics: BindingStructDeclarationEvaluation","number":"1.1.7","referencingIds":["_ref_27","_ref_38","_ref_88"]},{"type":"clause","id":"sec-struct-definitions-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"1.1.8"},{"type":"clause","id":"sec-structs-syntax-and-eval","titleHTML":"Syntax","number":"1.1"},{"type":"term","term":"struct method exotic object","id":"struct-method-exotic-object","referencingIds":["_ref_30","_ref_31","_ref_32","_ref_34","_ref_35","_ref_36"]},{"type":"table","id":"table-internal-slots-of-struct-method-exotic-objects","number":1,"caption":"Table 1: Internal Slots of Struct Method Exotic Objects","referencingIds":["_ref_0","_ref_1"]},{"type":"clause","id":"sec-struct-method-exotic-objects-call-thisargument-argumentslist","title":"[[Call]] ( thisArgument, argumentsList )","titleHTML":"[[Call]] ( <var>thisArgument</var>, <var>argumentsList</var> )","number":"1.2.1","referencingIds":["_ref_2"]},{"type":"op","aoid":"StructMethodCreate","refId":"sec-structmethodcreate"},{"type":"clause","id":"sec-structmethodcreate","title":"StructMethodCreate ( targetMethod )","titleHTML":"StructMethodCreate ( <var>targetMethod</var> )","number":"1.2.2","referencingIds":["_ref_33","_ref_37"]},{"type":"clause","id":"sec-struct-method-exotic-objects","titleHTML":"Struct Method Exotic Objects","number":"1.2"},{"type":"clause","id":"sec-super-keyword-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"1.3.1"},{"type":"clause","id":"changes-to-language-expressions","titleHTML":"Changes to ECMAScript Language: Expressions","number":"1.3"},{"type":"op","aoid":"DefineMethod","refId":"sec-runtime-semantics-definemethod"},{"type":"clause","id":"sec-runtime-semantics-definemethod","titleHTML":"Runtime Semantics: DefineMethod","number":"1.4.1","referencingIds":["_ref_22","_ref_81"]},{"type":"clause","id":"changes-to-language-functions-and-classes","titleHTML":"Changes to ECMAScript Language: Functions and Classes","number":"1.4"},{"type":"production","id":"prod-ExportDeclaration","name":"ExportDeclaration"},{"type":"clause","id":"sec-exports-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"1.5.1"},{"type":"clause","id":"sec-changes-to-modules","titleHTML":"Changes to Modules","number":"1.5"},{"type":"clause","id":"sec-structs","titleHTML":"Structs","number":"1"},{"type":"term","term":"Shared Struct","id":"shared-struct-exotic-object","referencingIds":["_ref_16","_ref_17","_ref_18","_ref_39","_ref_40","_ref_41","_ref_42","_ref_43","_ref_44","_ref_46","_ref_47","_ref_53","_ref_57","_ref_59","_ref_62","_ref_64","_ref_66","_ref_75","_ref_76","_ref_77","_ref_79","_ref_80","_ref_91","_ref_99","_ref_106","_ref_109","_ref_111","_ref_113","_ref_118","_ref_126","_ref_127"]},{"type":"op","aoid":"EnterSharedStructCreationCriticalSection","refId":"sec-entersharedstructcreationcriticalsection"},{"type":"clause","id":"sec-entersharedstructcreationcriticalsection","titleHTML":"EnterSharedStructCreationCriticalSection ( )","number":"2.1.1.1","referencingIds":["_ref_49","_ref_82","_ref_93","_ref_101","_ref_129"]},{"type":"op","aoid":"LeaveSharedStructCreationCriticalSection","refId":"sec-leavesharedstructcreationcriticalsection"},{"type":"clause","id":"sec-leavesharedstructcreationcriticalsection","titleHTML":"LeaveSharedStructCreationCriticalSection ( )","number":"2.1.1.2","referencingIds":["_ref_51","_ref_84","_ref_95","_ref_103","_ref_132"]},{"type":"clause","id":"sec-fictional-criticalsection","titleHTML":"Critical Section for Shared Struct Creation","number":"2.1.1"},{"type":"op","aoid":"ReadSharedStructField","refId":"sec-readsharedstructfield"},{"type":"clause","id":"sec-readsharedstructfield","title":"ReadSharedStructField ( struct, field, order )","titleHTML":"ReadSharedStructField ( <var>struct</var>, <var>field</var>, <var>order</var> )","number":"2.1.2","referencingIds":["_ref_45","_ref_58","_ref_112"]},{"type":"op","aoid":"WriteSharedStructField","refId":"sec-writesharedstructfield"},{"type":"clause","id":"sec-writesharedstructfield","title":"WriteSharedStructField ( struct, field, value, order )","titleHTML":"WriteSharedStructField ( <var>struct</var>, <var>field</var>, <var>value</var>, <var>order</var> )","number":"2.1.3","referencingIds":["_ref_61","_ref_78","_ref_115","_ref_130","_ref_131"]},{"type":"clause","id":"sec-shared-struct-getownproperty","title":"[[GetOwnProperty]] ( P )","titleHTML":"[[GetOwnProperty]] ( <var>P</var> )","number":"2.1.4","referencingIds":["_ref_3","_ref_9"]},{"type":"clause","id":"sec-shared-struct-defineownproperty","title":"[[DefineOwnProperty]] ( P, Desc )","titleHTML":"[[DefineOwnProperty]] ( <var>P</var>, <var>Desc</var> )","number":"2.1.5","referencingIds":["_ref_4","_ref_10"]},{"type":"clause","id":"sec-shared-struct-hasproperty","title":"[[HasProperty]] ( P )","titleHTML":"[[HasProperty]] ( <var>P</var> )","number":"2.1.6","referencingIds":["_ref_5","_ref_11"]},{"type":"clause","id":"sec-shared-struct-get","title":"[[Get]] ( P, Receiver )","titleHTML":"[[Get]] ( <var>P</var>, <var>Receiver</var> )","number":"2.1.7","referencingIds":["_ref_6","_ref_12"]},{"type":"clause","id":"sec-shared-struct-set","title":"[[Set]] ( P, V, Receiver )","titleHTML":"[[Set]] ( <var>P</var>, <var>V</var>, <var>Receiver</var> )","number":"2.1.8","referencingIds":["_ref_7","_ref_13"]},{"type":"clause","id":"sec-shared-struct-delete","title":"[[Delete]] ( P )","titleHTML":"[[Delete]] ( <var>P</var> )","number":"2.1.9","referencingIds":["_ref_8","_ref_14"]},{"type":"clause","id":"sec-shared-struct-exotic-objects","titleHTML":"Shared Struct Exotic Objects","number":"2.1"},{"type":"production","id":"prod-StructDeclaration","name":"StructDeclaration","referencingIds":["_ref_150","_ref_153","_ref_155","_ref_162","_ref_163","_ref_164","_ref_165","_ref_179","_ref_182","_ref_184"]},{"type":"production","id":"prod-StructExpression","name":"StructExpression","referencingIds":["_ref_158","_ref_161","_ref_187","_ref_190"]},{"type":"production","id":"prod-SharedStructTail","name":"SharedStructTail","referencingIds":["_ref_166","_ref_167","_ref_168","_ref_177","_ref_180","_ref_181","_ref_183","_ref_185","_ref_186","_ref_188","_ref_189"]},{"type":"production","id":"prod-SharedStructBody","name":"SharedStructBody","referencingIds":["_ref_169","_ref_170","_ref_171","_ref_172","_ref_173","_ref_174","_ref_176"]},{"type":"op","aoid":"ContainsInstancePrivateIdentifier","refId":"sec-struct-definitions-static-semantics-containsinstanceprivateidentifier"},{"type":"clause","id":"sec-struct-definitions-static-semantics-containsinstanceprivateidentifier","titleHTML":"Static Semantics: ContainsInstancePrivateIdentifier","number":"2.2.1","referencingIds":["_ref_67","_ref_68","_ref_69","_ref_73"]},{"type":"op","aoid":"ContainsInstanceMethod","refId":"sec-struct-definitions-static-semantics-containsinstancemethod"},{"type":"clause","id":"sec-struct-definitions-static-semantics-containsinstancemethod","titleHTML":"Static Semantics: ContainsInstanceMethod","number":"2.2.2","referencingIds":["_ref_70","_ref_71","_ref_72","_ref_74"]},{"type":"clause","id":"sec-shared-struct-definitions-static-semantics-early-errors","titleHTML":"Static Semantics: Early Errors","number":"2.2.3"},{"type":"op","aoid":"CanBeSharedAcrossAgents","refId":"sec-canbesharedacrossagents"},{"type":"clause","id":"sec-canbesharedacrossagents","title":"CanBeSharedAcrossAgents ( val )","titleHTML":"CanBeSharedAcrossAgents ( <var>val</var> )","number":"2.2.4","referencingIds":["_ref_50","_ref_54","_ref_60","_ref_92","_ref_94","_ref_100","_ref_102","_ref_107","_ref_114"]},{"type":"op","aoid":"DefineSharedStructField","refId":"sec-definesharedstructfield"},{"type":"clause","id":"sec-definesharedstructfield","title":"DefineSharedStructField ( receiver, fieldRecord )","titleHTML":"DefineSharedStructField ( <var>receiver</var>, <var>fieldRecord</var> )","number":"2.2.5"},{"type":"op","aoid":"SharedStructDefinitionEvaluation","refId":"sec-runtime-semantics-sharedstructdefinitionevaluation"},{"type":"clause","id":"sec-runtime-semantics-sharedstructdefinitionevaluation","titleHTML":"Runtime Semantics: SharedStructDefinitionEvaluation","number":"2.2.6","referencingIds":["_ref_86","_ref_87","_ref_89","_ref_90"]},{"type":"clause","id":"sec-runtime-semantics-bindingsharedstructdeclarationevaluation","titleHTML":"Runtime Semantics: BindingStructDeclarationEvaluation","number":"2.2.7"},{"type":"clause","id":"sec-shared-struct-definitions-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"2.2.8"},{"type":"clause","id":"sec-shared-structs-syntax-and-eval","titleHTML":"Syntax","number":"2.2"},{"type":"op","aoid":"AtomicCompareExchangeInSharedStruct","refId":"sec-atomiccompareexchangeinsharedstruct"},{"type":"clause","id":"sec-atomiccompareexchangeinsharedstruct","title":"AtomicCompareExchangeInSharedStruct ( struct, field, expectedValue, replacementValue )","titleHTML":"AtomicCompareExchangeInSharedStruct ( <var>struct</var>, <var>field</var>, <var>expectedValue</var>, <var>replacementValue</var> )","number":"2.3.1","referencingIds":["_ref_108"]},{"type":"op","aoid":"AtomicReadModifyWriteInSharedStruct","refId":"sec-atomicreadmodifywriteinsharedstruct"},{"type":"clause","id":"sec-atomicreadmodifywriteinsharedstruct","title":"AtomicReadModifyWriteInSharedStruct ( struct, field, value, op )","titleHTML":"AtomicReadModifyWriteInSharedStruct ( <var>struct</var>, <var>field</var>, <var>value</var>, <var>op</var> )","number":"2.3.2","referencingIds":["_ref_110"]},{"type":"clause","id":"sec-atomics.compareexchange-struct","title":"Atomics.compareExchange ( typedArraytypedArrayOrStruct, indexindexOrField, expectedValue, replacementValue )","titleHTML":"Atomics.compareExchange ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins>, <var>expectedValue</var>, <var>replacementValue</var> )","number":"2.3.3"},{"type":"clause","id":"sec-atomics.exchange-struct","title":"Atomics.exchange ( typedArraytypedArrayOrStruct, indexindexOrField, value )","titleHTML":"Atomics.exchange ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins>, <var>value</var> )","number":"2.3.4"},{"type":"clause","id":"sec-atomics.load-struct","title":"Atomics.load ( typedArraytypedArrayOrStruct, indexindexOrField )","titleHTML":"Atomics.load ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins> )","number":"2.3.5"},{"type":"clause","id":"sec-atomics.store-struct","title":"Atomics.store ( typedArraytypedArrayOrStruct, indexindexOrField, value )","titleHTML":"Atomics.store ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins>, <var>value</var> )","number":"2.3.6"},{"type":"clause","id":"sec-changes-to-atomics-object","titleHTML":"Changes to the Atomics Object","number":"2.3"},{"type":"term","term":"Shared Memory Storage Record","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"SharedBlockStorage","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"SharedStructStorage","refId":"sec-memory-model-fundamentals"},{"type":"table","id":"table-sharedblockstorage-fields","number":2,"caption":"Table 2: SharedBlockStorage Fields"},{"type":"table","id":"table-sharedstructstorage-fields","number":3,"caption":"Table 3: SharedStructStorage Fields"},{"type":"term","term":"Shared Data Block event","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"ReadSharedMemory","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"WriteSharedMemory","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"ReadModifyWriteSharedMemory","refId":"sec-memory-model-fundamentals"},{"type":"table","id":"table-readsharedmemory-fields","number":4,"caption":"Table 4: ReadSharedMemory Event Fields"},{"type":"table","id":"table-writesharedmemory-fields","number":5,"caption":"Table 5: WriteSharedMemory Event Fields"},{"type":"table","id":"table-rmwsharedmemory-fields","number":6,"caption":"Table 6: ReadModifyWriteSharedMemory Event Fields"},{"type":"term","term":"Synchronize","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"Synchronize event","refId":"sec-memory-model-fundamentals"},{"type":"clause","id":"sec-memory-model-fundamentals","titleHTML":"Memory Model Fundamentals","number":"2.4.1","referencingIds":["_ref_48","_ref_52","_ref_55","_ref_56","_ref_63","_ref_65","_ref_96","_ref_97","_ref_98","_ref_104","_ref_105","_ref_116","_ref_117","_ref_119","_ref_120","_ref_121","_ref_122","_ref_123","_ref_124","_ref_125"]},{"type":"clause","id":"sec-changes-to-memory-model","titleHTML":"Changes to the Memory Model","number":"2.4"},{"type":"clause","id":"sec-shared-structs","titleHTML":"Shared Structs","number":"2"},{"type":"term","term":"Shared Arrays","refId":"sec-shared-arrays"},{"type":"term","term":"%SharedArray%","refId":"sec-shared-array-constructor"},{"type":"op","aoid":"SharedArrayCreate","refId":"sec-sharedarraycreate"},{"type":"clause","id":"sec-sharedarraycreate","title":"SharedArrayCreate ( length )","titleHTML":"SharedArrayCreate ( <var>length</var> )","number":"3.1.1","referencingIds":["_ref_134","_ref_135","_ref_136"]},{"type":"clause","id":"sec-sharedarray","title":"SharedArray ( ...values )","titleHTML":"SharedArray ( ...<var>values</var> )","number":"3.1.2"},{"type":"clause","id":"sec-shared-array-constructor","titleHTML":"The SharedArray Constructor","number":"3.1"},{"type":"clause","id":"sec-shared-arrays","titleHTML":"Shared Array Object","number":"3","referencingIds":["_ref_128","_ref_133"]},{"type":"clause","id":"sec-copyright-and-software-license","title":"Copyright & Software License","titleHTML":"Copyright &amp; Software License","number":"A"}]}`);
+let biblio = JSON.parse(`{"refsByClause":{"sec-struct-method-exotic-objects":["_ref_0","_ref_30","_ref_31","_ref_32","_ref_33","_ref_34"],"sec-structmethodcreate":["_ref_1","_ref_2","_ref_36"],"sec-runtime-semantics-sharedstructdefinitionevaluation":["_ref_3","_ref_4","_ref_5","_ref_6","_ref_7","_ref_8","_ref_79","_ref_80","_ref_81","_ref_82","_ref_83","_ref_84","_ref_85","_ref_170","_ref_171","_ref_172","_ref_173","_ref_174","_ref_175","_ref_176"],"sec-sharedarraycreate":["_ref_9","_ref_10","_ref_11","_ref_12","_ref_13","_ref_14","_ref_128","_ref_129","_ref_130","_ref_131","_ref_132"],"sec-initializestructinstancefieldsandbrands":["_ref_15","_ref_16","_ref_17","_ref_18","_ref_19"],"sec-runstructinstancefieldinitializers":["_ref_20","_ref_21"],"sec-runtime-semantics-structdefinitionevaluation":["_ref_22","_ref_23","_ref_24","_ref_141","_ref_142","_ref_143","_ref_144","_ref_145","_ref_146","_ref_147"],"sec-runtime-semantics-bindingstructdeclarationevaluation":["_ref_25","_ref_26","_ref_148","_ref_149","_ref_150","_ref_151","_ref_152","_ref_153"],"sec-struct-definitions-runtime-semantics-evaluation":["_ref_27","_ref_28","_ref_29","_ref_154","_ref_155","_ref_156","_ref_157","_ref_158","_ref_159","_ref_160","_ref_161"],"sec-struct-method-exotic-objects-call-thisargument-argumentslist":["_ref_35"],"sec-runtime-semantics-definemethod":["_ref_37"],"sec-exports-runtime-semantics-evaluation":["_ref_38","_ref_163","_ref_164","_ref_165"],"sec-shared-struct-exotic-objects":["_ref_39"],"sec-entersharedstructcreationcriticalsection":["_ref_40","_ref_41","_ref_42"],"sec-leavesharedstructcreationcriticalsection":["_ref_43","_ref_44"],"sec-fictional-criticalsection":["_ref_45","_ref_46"],"sec-readsharedstructfield":["_ref_47","_ref_48","_ref_49","_ref_50","_ref_51","_ref_52"],"sec-writesharedstructfield":["_ref_53","_ref_54","_ref_55","_ref_56"],"sec-shared-struct-getownproperty":["_ref_57","_ref_58"],"sec-shared-struct-defineownproperty":["_ref_59","_ref_60","_ref_61"],"sec-shared-struct-hasproperty":["_ref_62","_ref_63"],"sec-shared-struct-set":["_ref_64","_ref_65"],"sec-shared-struct-delete":["_ref_66"],"sec-struct-definitions-static-semantics-containsinstanceprivateidentifier":["_ref_67","_ref_68","_ref_69"],"sec-struct-definitions-static-semantics-containsinstancemethod":["_ref_70","_ref_71","_ref_72"],"sec-shared-struct-definitions-static-semantics-early-errors":["_ref_73","_ref_74"],"sec-canbesharedacrossagents":["_ref_75"],"sec-definesharedstructfield":["_ref_76","_ref_77","_ref_78"],"sec-runtime-semantics-bindingsharedstructdeclarationevaluation":["_ref_86","_ref_87","_ref_177","_ref_178","_ref_179","_ref_180","_ref_181","_ref_182"],"sec-shared-struct-definitions-runtime-semantics-evaluation":["_ref_88","_ref_89","_ref_90","_ref_183","_ref_184","_ref_185","_ref_186","_ref_187","_ref_188","_ref_189","_ref_190"],"sec-atomiccompareexchangeinsharedstruct":["_ref_91","_ref_92","_ref_93","_ref_94","_ref_95","_ref_96","_ref_97","_ref_98"],"sec-atomicreadmodifywriteinsharedstruct":["_ref_99","_ref_100","_ref_101","_ref_102","_ref_103","_ref_104","_ref_105"],"sec-atomics.compareexchange-struct":["_ref_106","_ref_107","_ref_108"],"sec-atomics.exchange-struct":["_ref_109","_ref_110"],"sec-atomics.load-struct":["_ref_111","_ref_112"],"sec-atomics.store-struct":["_ref_113","_ref_114","_ref_115"],"sec-memory-model-fundamentals":["_ref_116","_ref_117","_ref_118","_ref_119","_ref_120","_ref_121","_ref_122","_ref_123","_ref_124"],"sec-shared-structs":["_ref_125"],"sec-shared-arrays":["_ref_126","_ref_127"],"sec-sharedarray":["_ref_133","_ref_134","_ref_135","_ref_136"],"sec-structs-syntax-and-eval":["_ref_137","_ref_138","_ref_139","_ref_140"],"sec-changes-to-modules":["_ref_162"],"sec-shared-structs-syntax-and-eval":["_ref_166","_ref_167","_ref_168","_ref_169"]},"entries":[{"type":"clause","id":"intro","titleHTML":"Structs, Shared Structs, Unsafe Blocks, and Synchronization Primitives","number":""},{"type":"production","id":"prod-StructDeclaration","name":"StructDeclaration"},{"type":"production","id":"prod-StructExpression","name":"StructExpression"},{"type":"production","id":"prod-StructTail","name":"StructTail","referencingIds":["_ref_137","_ref_138","_ref_139","_ref_148","_ref_149","_ref_151","_ref_152","_ref_154","_ref_156","_ref_157","_ref_159","_ref_160","_ref_178"]},{"type":"production","id":"prod-StructBody","name":"StructBody","referencingIds":["_ref_140","_ref_141","_ref_142","_ref_143","_ref_144","_ref_145","_ref_146","_ref_147","_ref_175"]},{"type":"clause","id":"sec-struct-definitions-static-semantics-early-errors","titleHTML":"Static Semantics: Early Errors","number":"1.1.1"},{"type":"op","aoid":"DefineStructField","refId":"sec-definestructfield"},{"type":"clause","id":"sec-definestructfield","title":"DefineStructField ( receiver, fieldRecord )","titleHTML":"DefineStructField ( <var>receiver</var>, <var>fieldRecord</var> )","number":"1.1.2","referencingIds":["_ref_19"]},{"type":"op","aoid":"InitializeStructInstanceFieldsAndBrand","refId":"sec-initializestructinstancefieldsandbrands"},{"type":"clause","id":"sec-initializestructinstancefieldsandbrands","title":"InitializeStructInstanceFieldsAndBrand ( receiver, constructor )","titleHTML":"InitializeStructInstanceFieldsAndBrand ( <var>receiver</var>, <var>constructor</var> )","number":"1.1.3","referencingIds":["_ref_15","_ref_23","_ref_83"]},{"type":"op","aoid":"RunFieldInitializer","refId":"sec-runfieldinitializer"},{"type":"clause","id":"sec-runfieldinitializer","title":"RunFieldInitializer ( receiver, fieldRecord )","titleHTML":"RunFieldInitializer ( <var>receiver</var>, <var>fieldRecord</var> )","number":"1.1.4","referencingIds":["_ref_21"]},{"type":"op","aoid":"RunStructInstanceFieldInitializers","refId":"sec-runstructinstancefieldinitializers"},{"type":"clause","id":"sec-runstructinstancefieldinitializers","title":"RunStructInstanceFieldInitializers ( receiver, constructor )","titleHTML":"RunStructInstanceFieldInitializers ( <var>receiver</var>, <var>constructor</var> )","number":"1.1.5","referencingIds":["_ref_20","_ref_24","_ref_85"]},{"type":"op","aoid":"StructDefinitionEvaluation","refId":"sec-runtime-semantics-structdefinitionevaluation"},{"type":"clause","id":"sec-runtime-semantics-structdefinitionevaluation","titleHTML":"Runtime Semantics: StructDefinitionEvaluation","number":"1.1.6","referencingIds":["_ref_25","_ref_26","_ref_28","_ref_29"]},{"type":"op","aoid":"BindingStructDeclarationEvaluation","refId":"sec-runtime-semantics-bindingstructdeclarationevaluation"},{"type":"clause","id":"sec-runtime-semantics-bindingstructdeclarationevaluation","titleHTML":"Runtime Semantics: BindingStructDeclarationEvaluation","number":"1.1.7","referencingIds":["_ref_27","_ref_38","_ref_88"]},{"type":"clause","id":"sec-struct-definitions-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"1.1.8"},{"type":"clause","id":"sec-structs-syntax-and-eval","titleHTML":"Syntax","number":"1.1"},{"type":"term","term":"struct method exotic object","id":"struct-method-exotic-object","referencingIds":["_ref_30","_ref_31","_ref_32","_ref_34","_ref_35","_ref_36"]},{"type":"table","id":"table-internal-slots-of-struct-method-exotic-objects","number":1,"caption":"Table 1: Internal Slots of Struct Method Exotic Objects","referencingIds":["_ref_0","_ref_1"]},{"type":"clause","id":"sec-struct-method-exotic-objects-call-thisargument-argumentslist","title":"[[Call]] ( thisArgument, argumentsList )","titleHTML":"<var class=\\"field\\">[[Call]]</var> ( <var>thisArgument</var>, <var>argumentsList</var> )","number":"1.2.1","referencingIds":["_ref_2"]},{"type":"op","aoid":"StructMethodCreate","refId":"sec-structmethodcreate"},{"type":"clause","id":"sec-structmethodcreate","title":"StructMethodCreate ( targetMethod )","titleHTML":"StructMethodCreate ( <var>targetMethod</var> )","number":"1.2.2","referencingIds":["_ref_33","_ref_37"]},{"type":"clause","id":"sec-struct-method-exotic-objects","titleHTML":"Struct Method Exotic Objects","number":"1.2"},{"type":"clause","id":"sec-super-keyword-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"1.3.1"},{"type":"clause","id":"changes-to-language-expressions","titleHTML":"Changes to ECMAScript Language: Expressions","number":"1.3"},{"type":"op","aoid":"DefineMethod","refId":"sec-runtime-semantics-definemethod"},{"type":"clause","id":"sec-runtime-semantics-definemethod","titleHTML":"Runtime Semantics: DefineMethod","number":"1.4.1","referencingIds":["_ref_22","_ref_81"]},{"type":"clause","id":"changes-to-language-functions-and-classes","titleHTML":"Changes to ECMAScript Language: Functions and Classes","number":"1.4"},{"type":"production","id":"prod-ExportDeclaration","name":"ExportDeclaration"},{"type":"clause","id":"sec-exports-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"1.5.1"},{"type":"clause","id":"sec-changes-to-modules","titleHTML":"Changes to Modules","number":"1.5"},{"type":"clause","id":"sec-structs","titleHTML":"Structs","number":"1"},{"type":"term","term":"Shared Struct","id":"shared-struct-exotic-object","referencingIds":["_ref_16","_ref_17","_ref_18","_ref_39","_ref_40","_ref_41","_ref_42","_ref_43","_ref_44","_ref_46","_ref_47","_ref_53","_ref_57","_ref_59","_ref_62","_ref_64","_ref_66","_ref_75","_ref_76","_ref_77","_ref_79","_ref_80","_ref_91","_ref_99","_ref_106","_ref_109","_ref_111","_ref_113","_ref_118","_ref_126","_ref_127"]},{"type":"op","aoid":"EnterSharedStructCreationCriticalSection","refId":"sec-entersharedstructcreationcriticalsection"},{"type":"clause","id":"sec-entersharedstructcreationcriticalsection","titleHTML":"EnterSharedStructCreationCriticalSection ( )","number":"2.1.1.1","referencingIds":["_ref_49","_ref_82","_ref_93","_ref_101","_ref_129"]},{"type":"op","aoid":"LeaveSharedStructCreationCriticalSection","refId":"sec-leavesharedstructcreationcriticalsection"},{"type":"clause","id":"sec-leavesharedstructcreationcriticalsection","titleHTML":"LeaveSharedStructCreationCriticalSection ( )","number":"2.1.1.2","referencingIds":["_ref_51","_ref_84","_ref_95","_ref_103","_ref_132"]},{"type":"clause","id":"sec-fictional-criticalsection","titleHTML":"Critical Section for Shared Struct Creation","number":"2.1.1"},{"type":"op","aoid":"ReadSharedStructField","refId":"sec-readsharedstructfield"},{"type":"clause","id":"sec-readsharedstructfield","title":"ReadSharedStructField ( struct, field, order )","titleHTML":"ReadSharedStructField ( <var>struct</var>, <var>field</var>, <var>order</var> )","number":"2.1.2","referencingIds":["_ref_45","_ref_58","_ref_112"]},{"type":"op","aoid":"WriteSharedStructField","refId":"sec-writesharedstructfield"},{"type":"clause","id":"sec-writesharedstructfield","title":"WriteSharedStructField ( struct, field, value, order )","titleHTML":"WriteSharedStructField ( <var>struct</var>, <var>field</var>, <var>value</var>, <var>order</var> )","number":"2.1.3","referencingIds":["_ref_61","_ref_78","_ref_115","_ref_130","_ref_131"]},{"type":"clause","id":"sec-shared-struct-getownproperty","title":"[[GetOwnProperty]] ( P )","titleHTML":"<var class=\\"field\\">[[GetOwnProperty]]</var> ( <var>P</var> )","number":"2.1.4","referencingIds":["_ref_3","_ref_9"]},{"type":"clause","id":"sec-shared-struct-defineownproperty","title":"[[DefineOwnProperty]] ( P, Desc )","titleHTML":"<var class=\\"field\\">[[DefineOwnProperty]]</var> ( <var>P</var>, <var>Desc</var> )","number":"2.1.5","referencingIds":["_ref_4","_ref_10"]},{"type":"clause","id":"sec-shared-struct-hasproperty","title":"[[HasProperty]] ( P )","titleHTML":"<var class=\\"field\\">[[HasProperty]]</var> ( <var>P</var> )","number":"2.1.6","referencingIds":["_ref_5","_ref_11"]},{"type":"clause","id":"sec-shared-struct-get","title":"[[Get]] ( P, Receiver )","titleHTML":"<var class=\\"field\\">[[Get]]</var> ( <var>P</var>, <var>Receiver</var> )","number":"2.1.7","referencingIds":["_ref_6","_ref_12"]},{"type":"clause","id":"sec-shared-struct-set","title":"[[Set]] ( P, V, Receiver )","titleHTML":"<var class=\\"field\\">[[Set]]</var> ( <var>P</var>, <var>V</var>, <var>Receiver</var> )","number":"2.1.8","referencingIds":["_ref_7","_ref_13"]},{"type":"clause","id":"sec-shared-struct-delete","title":"[[Delete]] ( P )","titleHTML":"<var class=\\"field\\">[[Delete]]</var> ( <var>P</var> )","number":"2.1.9","referencingIds":["_ref_8","_ref_14"]},{"type":"clause","id":"sec-shared-struct-exotic-objects","titleHTML":"Shared Struct Exotic Objects","number":"2.1"},{"type":"production","id":"prod-StructDeclaration","name":"StructDeclaration","referencingIds":["_ref_150","_ref_153","_ref_155","_ref_162","_ref_163","_ref_164","_ref_165","_ref_179","_ref_182","_ref_184"]},{"type":"production","id":"prod-StructExpression","name":"StructExpression","referencingIds":["_ref_158","_ref_161","_ref_187","_ref_190"]},{"type":"production","id":"prod-SharedStructTail","name":"SharedStructTail","referencingIds":["_ref_166","_ref_167","_ref_168","_ref_177","_ref_180","_ref_181","_ref_183","_ref_185","_ref_186","_ref_188","_ref_189"]},{"type":"production","id":"prod-SharedStructBody","name":"SharedStructBody","referencingIds":["_ref_169","_ref_170","_ref_171","_ref_172","_ref_173","_ref_174","_ref_176"]},{"type":"op","aoid":"ContainsInstancePrivateIdentifier","refId":"sec-struct-definitions-static-semantics-containsinstanceprivateidentifier"},{"type":"clause","id":"sec-struct-definitions-static-semantics-containsinstanceprivateidentifier","titleHTML":"Static Semantics: ContainsInstancePrivateIdentifier","number":"2.2.1","referencingIds":["_ref_67","_ref_68","_ref_69","_ref_73"]},{"type":"op","aoid":"ContainsInstanceMethod","refId":"sec-struct-definitions-static-semantics-containsinstancemethod"},{"type":"clause","id":"sec-struct-definitions-static-semantics-containsinstancemethod","titleHTML":"Static Semantics: ContainsInstanceMethod","number":"2.2.2","referencingIds":["_ref_70","_ref_71","_ref_72","_ref_74"]},{"type":"clause","id":"sec-shared-struct-definitions-static-semantics-early-errors","titleHTML":"Static Semantics: Early Errors","number":"2.2.3"},{"type":"op","aoid":"CanBeSharedAcrossAgents","refId":"sec-canbesharedacrossagents"},{"type":"clause","id":"sec-canbesharedacrossagents","title":"CanBeSharedAcrossAgents ( val )","titleHTML":"CanBeSharedAcrossAgents ( <var>val</var> )","number":"2.2.4","referencingIds":["_ref_50","_ref_54","_ref_60","_ref_92","_ref_94","_ref_100","_ref_102","_ref_107","_ref_114"]},{"type":"op","aoid":"DefineSharedStructField","refId":"sec-definesharedstructfield"},{"type":"clause","id":"sec-definesharedstructfield","title":"DefineSharedStructField ( receiver, fieldRecord )","titleHTML":"DefineSharedStructField ( <var>receiver</var>, <var>fieldRecord</var> )","number":"2.2.5"},{"type":"op","aoid":"SharedStructDefinitionEvaluation","refId":"sec-runtime-semantics-sharedstructdefinitionevaluation"},{"type":"clause","id":"sec-runtime-semantics-sharedstructdefinitionevaluation","titleHTML":"Runtime Semantics: SharedStructDefinitionEvaluation","number":"2.2.6","referencingIds":["_ref_86","_ref_87","_ref_89","_ref_90"]},{"type":"clause","id":"sec-runtime-semantics-bindingsharedstructdeclarationevaluation","titleHTML":"Runtime Semantics: BindingStructDeclarationEvaluation","number":"2.2.7"},{"type":"clause","id":"sec-shared-struct-definitions-runtime-semantics-evaluation","titleHTML":"Runtime Semantics: Evaluation","number":"2.2.8"},{"type":"clause","id":"sec-shared-structs-syntax-and-eval","titleHTML":"Syntax","number":"2.2"},{"type":"op","aoid":"AtomicCompareExchangeInSharedStruct","refId":"sec-atomiccompareexchangeinsharedstruct"},{"type":"clause","id":"sec-atomiccompareexchangeinsharedstruct","title":"AtomicCompareExchangeInSharedStruct ( struct, field, expectedValue, replacementValue )","titleHTML":"AtomicCompareExchangeInSharedStruct ( <var>struct</var>, <var>field</var>, <var>expectedValue</var>, <var>replacementValue</var> )","number":"2.3.1","referencingIds":["_ref_108"]},{"type":"op","aoid":"AtomicReadModifyWriteInSharedStruct","refId":"sec-atomicreadmodifywriteinsharedstruct"},{"type":"clause","id":"sec-atomicreadmodifywriteinsharedstruct","title":"AtomicReadModifyWriteInSharedStruct ( struct, field, value, op )","titleHTML":"AtomicReadModifyWriteInSharedStruct ( <var>struct</var>, <var>field</var>, <var>value</var>, <var>op</var> )","number":"2.3.2","referencingIds":["_ref_110"]},{"type":"clause","id":"sec-atomics.compareexchange-struct","title":"Atomics.compareExchange ( typedArraytypedArrayOrStruct, indexindexOrField, expectedValue, replacementValue )","titleHTML":"Atomics.compareExchange ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins>, <var>expectedValue</var>, <var>replacementValue</var> )","number":"2.3.3"},{"type":"clause","id":"sec-atomics.exchange-struct","title":"Atomics.exchange ( typedArraytypedArrayOrStruct, indexindexOrField, value )","titleHTML":"Atomics.exchange ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins>, <var>value</var> )","number":"2.3.4"},{"type":"clause","id":"sec-atomics.load-struct","title":"Atomics.load ( typedArraytypedArrayOrStruct, indexindexOrField )","titleHTML":"Atomics.load ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins> )","number":"2.3.5"},{"type":"clause","id":"sec-atomics.store-struct","title":"Atomics.store ( typedArraytypedArrayOrStruct, indexindexOrField, value )","titleHTML":"Atomics.store ( <del><var>typedArray</var></del><ins><var>typedArrayOrStruct</var></ins>, <del><var>index</var></del><ins><var>indexOrField</var></ins>, <var>value</var> )","number":"2.3.6"},{"type":"clause","id":"sec-changes-to-atomics-object","titleHTML":"Changes to the Atomics Object","number":"2.3"},{"type":"term","term":"Shared Memory Storage Record","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"SharedBlockStorage","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"SharedStructStorage","refId":"sec-memory-model-fundamentals"},{"type":"table","id":"table-sharedblockstorage-fields","number":2,"caption":"Table 2: SharedBlockStorage Fields"},{"type":"table","id":"table-sharedstructstorage-fields","number":3,"caption":"Table 3: SharedStructStorage Fields"},{"type":"term","term":"Shared Data Block event","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"ReadSharedMemory","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"WriteSharedMemory","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"ReadModifyWriteSharedMemory","refId":"sec-memory-model-fundamentals"},{"type":"table","id":"table-readsharedmemory-fields","number":4,"caption":"Table 4: ReadSharedMemory Event Fields"},{"type":"table","id":"table-writesharedmemory-fields","number":5,"caption":"Table 5: WriteSharedMemory Event Fields"},{"type":"table","id":"table-rmwsharedmemory-fields","number":6,"caption":"Table 6: ReadModifyWriteSharedMemory Event Fields"},{"type":"term","term":"Synchronize","refId":"sec-memory-model-fundamentals"},{"type":"term","term":"Synchronize event","refId":"sec-memory-model-fundamentals"},{"type":"clause","id":"sec-memory-model-fundamentals","titleHTML":"Memory Model Fundamentals","number":"2.4.1","referencingIds":["_ref_48","_ref_52","_ref_55","_ref_56","_ref_63","_ref_65","_ref_96","_ref_97","_ref_98","_ref_104","_ref_105","_ref_116","_ref_117","_ref_119","_ref_120","_ref_121","_ref_122","_ref_123","_ref_124","_ref_125"]},{"type":"clause","id":"sec-changes-to-memory-model","titleHTML":"Changes to the Memory Model","number":"2.4"},{"type":"clause","id":"sec-shared-structs","titleHTML":"Shared Structs","number":"2"},{"type":"term","term":"Shared Arrays","refId":"sec-shared-arrays"},{"type":"term","term":"%SharedArray%","refId":"sec-shared-array-constructor"},{"type":"op","aoid":"SharedArrayCreate","refId":"sec-sharedarraycreate"},{"type":"clause","id":"sec-sharedarraycreate","title":"SharedArrayCreate ( length )","titleHTML":"SharedArrayCreate ( <var>length</var> )","number":"3.1.1","referencingIds":["_ref_134","_ref_135","_ref_136"]},{"type":"clause","id":"sec-sharedarray","title":"SharedArray ( ...values )","titleHTML":"SharedArray ( ...<var>values</var> )","number":"3.1.2"},{"type":"clause","id":"sec-shared-array-constructor","titleHTML":"The SharedArray Constructor","number":"3.1"},{"type":"clause","id":"sec-shared-arrays","titleHTML":"Shared Array Object","number":"3","referencingIds":["_ref_128","_ref_133"]},{"type":"clause","id":"sec-copyright-and-software-license","title":"Copyright & Software License","titleHTML":"Copyright &amp; Software License","number":"A"}]}`);
 ;let usesMultipage = false
