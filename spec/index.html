@@ -2756,7 +2756,7 @@ markEffects: true
         1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
         1. Let _lockResult_ be LockMutex(_mutex_, +∞).
         1. Assert: _lockResult_ is ~acquired~.
-        1. Let _callbackResult_ be Completion(Call(_callback_, _thisArg_, « »)).
+        1. Let _callbackResult_ be Completion(Call(_callback_, _thisArg_)).
         1. Perform UnlockMutex(_mutex_).
         1. Return Completion(_callbackResult_).
       </emu-alg>
@@ -2892,8 +2892,33 @@ markEffects: true
     </emu-note>
 
     <emu-clause id="sec-atomics.condition.wait">
-      <h1>Atomics.Condition.wait ( _cv_, _mutexUnlockToken_ [ , _timeout_ ] )</h1>
-      <p>This function puts the surrounding agent in a wait queue and suspends it until the condition variable is notified or until the wait times out, returning a String differentiating those cases.</p>
+      <h1>Atomics.Condition.wait ( _cv_, _mutexUnlockToken_ )</h1>
+      <p>This function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until the condition variable is notified.</p>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
+        1. Perform ? RequireInternalSlot(_mutexUnlockToken_, [[LockedMutex]]).
+        1. Let _mutex_ be _mutexUnlockToken_.[[LockedMutex]].
+        1. If _mutex_ is ~empty~, throw a *TypeError* exception.
+        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. Let _thisAgent_ be AgentSignifier().
+        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
+        1. Perform EnterCriticalSection(_WL_).
+        1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: +∞, [[Result]]: *"ok"* }.
+        1. Perform AddWaiter(_WL_, _waiterRecord_).
+        1. Perform UnlockMutex(_mutex_).
+        1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
+        1. Perform LeaveCriticalSection(_WL_).
+        1. Perform LockMutex(_mutex_, +∞).
+        1. Assert: _waiterRecord_.[[Result]] is *"ok"*.
+        1. Return *undefined*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.condition.waitFor">
+      <h1>Atomics.Condition.waitFor ( _cv_, _mutexUnlockToken_, _timeout_ [ , _predicate_ ] )</h1>
+      <p>If _predicate_ is *undefined*, this function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until the condition variable is notified or until the wait times out, returning *true* for the former and *false* for the latter.</p>
+      <p>If a _predicate_ is passed and calling it returns *false*, this function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until _predicate_ returns *true*, or until the wait times out. The return value of the final call to _predicate_ is returned.</p>
       <p>It performs the following steps when called:</p>
       <emu-alg>
         1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
@@ -2903,21 +2928,35 @@ markEffects: true
         1. If _timeout_ is *undefined*, set _timeout_ to *+∞*<sub>𝔽</sub>.
         1. If _timeout_ is not a Number, throw a *TypeError* exception.
         1. If _timeout_ is either *NaN* or *+∞*<sub>𝔽</sub>, let _tMillis_ be +∞; else if _timeout_ is *-∞*<sub>𝔽</sub>, let _tMillis_ be 0; else let _tMillis_ be max(ℝ(_timeout_), 0).
+        1. If _predicate_ is not *undefined* and IsCallable(_predicate_) is *false*, throw a *TypeError* exception.
         1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
-        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
-        1. Perform EnterCriticalSection(_WL_).
         1. Let _thisAgent_ be AgentSignifier().
-        1. Let _now_ be the time value (UTC) identifying the current time.
-        1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
-        1. Let _timeoutTime_ be ℝ(_now_) + _tMillis_ + _additionalTimeout_.
-        1. NOTE: When _tMillis_ is +∞, _timeoutTime_ is also +∞.
-        1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: _timeoutTime_, [[Result]]: *"ok"* }.
-        1. Perform AddWaiter(_WL_, _waiterRecord_).
-        1. Perform UnlockMutex(_mutex_).
-        1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
-        1. Perform LeaveCriticalSection(_WL_).
-        1. Perform LockMutex(_mutex_, +∞).
-        1. Return _waiterRecord_.[[Result]].
+        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
+        1. Let _satisfied_ be *false*.
+        1. Repeat,
+          1. If _predicate_ is not *undefined*, then
+            1. Set _satisfied_ to ToBoolean(? Call(_predicate_, *undefined*)).
+          1. If _satisfied_ is *true*, return *true*.
+          1. If _tMillis_ &le; 0, then return _satisfied_.
+          1. Let _timeBeforeWait_ be the time value (UTC) identifying the current time.
+          1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
+          1. Let _timeoutTime_ be ℝ(_timeBeforeWait_) + _tMillis_ + _additionalTimeout_.
+          1. NOTE: When _tMillis_ is +∞, _timeoutTime_ is also +∞.
+          1. Perform EnterCriticalSection(_WL_).
+          1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: _timeoutTime_, [[Result]]: *"ok"* }.
+          1. Perform AddWaiter(_WL_, _waiterRecord_).
+          1. Perform UnlockMutex(_mutex_).
+          1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
+          1. Perform LeaveCriticalSection(_WL_).
+          1. Perform LockMutex(_mutex_, +∞).
+          1. Let _timeAfterWait_ be the time value (UTC) identifying the current time.
+          1. Let _timeElapsed_ be _timeAfterWait_ - _timeBeforeWait_.
+          1. Set _tMillis_ to _tMillis_ - _timeElapsed_.
+          1. If _waiterRecord_.[[Result]] is *"ok"*, then
+            1. Set _satisfied_ to *true*.
+          1. Else,
+            1. Assert: _waitierRecord_.[[Result]] is *"timed-out"*.
+            1. Set _satisfied_ to *false*.
       </emu-alg>
     </emu-clause>
 
