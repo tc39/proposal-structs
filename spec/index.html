@@ -2925,7 +2925,6 @@ markEffects: true
         1. Perform ? RequireInternalSlot(_mutexUnlockToken_, [[LockedMutex]]).
         1. Let _mutex_ be _mutexUnlockToken_.[[LockedMutex]].
         1. If _mutex_ is ~empty~, throw a *TypeError* exception.
-        1. If _timeout_ is *undefined*, set _timeout_ to *+∞*<sub>𝔽</sub>.
         1. If _timeout_ is not a Number, throw a *TypeError* exception.
         1. If _timeout_ is either *NaN* or *+∞*<sub>𝔽</sub>, let _tMillis_ be +∞; else if _timeout_ is *-∞*<sub>𝔽</sub>, let _tMillis_ be 0; else let _tMillis_ be max(ℝ(_timeout_), 0).
         1. If _predicate_ is not *undefined* and IsCallable(_predicate_) is *false*, throw a *TypeError* exception.
