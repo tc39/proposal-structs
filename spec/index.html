@@ -2697,7 +2697,7 @@ markEffects: true
     </ul>
 
     <emu-note>
-      <p>Per-Realm prototypes, which is currently an open design question and not included in this draft, will give Mutexes a per-Realm prototype with built-in methods instead of static methods, and will also add support for the %Symbol.dispose%.</p>
+      <p>Per-Realm prototypes, which is currently an open design question and not included in this draft, will give Mutexes a per-Realm prototype with built-in methods instead of static methods.</p>
     </emu-note>
 
     <emu-clause id="sec-atomics.mutex.unlocktoken-prop">
@@ -2842,7 +2842,16 @@ markEffects: true
 
       <emu-clause id="sec-atomics.mutex.unlocktoken.prototype.%symbol.dispose%">
         <h1>Atomics.Mutex.UnlockToken.prototype [ %Symbol.dispose% ] ( )</h1>
-        <p>The initial value of the %Symbol.dispose% property is %Atomics.Mutex.UnlockToken.prototype.unlock%, defined in <emu-xref href="#sec-atomics.mutex.unlocktoken.prototype.unlock"></emu-xref>.</p>
+        <p>This function performs the following steps when called:</p>
+        <emu-alg>
+          1. Let _token_ be the *this* value.
+          1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
+          1. Let _mutex_ be _token_.[[LockedMutex]].
+          1. If _mutex_ is not ~empty~, then
+            1. Set _token_.[[LockedMutex]] to ~empty~.
+            1. Perform UnlockMutex(_mutex_).
+          1. Return *undefined*.
+        </emu-alg>
       </emu-clause>
     </emu-clause>
   </emu-clause>
@@ -2889,12 +2898,12 @@ markEffects: true
       <emu-alg>
         1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
         1. Perform ? RequireInternalSlot(_mutexUnlockToken_, [[LockedMutex]]).
-        1. If _mutexUnlockToken_.[[LockedMutex]] is ~empty~, throw a *TypeError* exception.
+        1. Let _mutex_ be _mutexUnlockToken_.[[LockedMutex]].
+        1. If _mutex_ is ~empty~, throw a *TypeError* exception.
         1. If _timeout_ is *undefined*, set _timeout_ to *+∞*<sub>𝔽</sub>.
         1. If _timeout_ is not a Number, throw a *TypeError* exception.
         1. If _timeout_ is either *NaN* or *+∞*<sub>𝔽</sub>, let _tMillis_ be +∞; else if _timeout_ is *-∞*<sub>𝔽</sub>, let _tMillis_ be 0; else let _tMillis_ be max(ℝ(_timeout_), 0).
         1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
-        1. Let _mutex_ be _mutexUnlockToken_.[[LockedMutex]].
         1. Let _WL_ be _cv_.[[ConditionWaiterList]].
         1. Perform EnterCriticalSection(_WL_).
         1. Let _thisAgent_ be AgentSignifier().
