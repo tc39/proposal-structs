@@ -2937,7 +2937,7 @@ markEffects: true
           1. If _predicate_ is not *undefined*, then
             1. Set _satisfied_ to ToBoolean(? Call(_predicate_, *undefined*)).
           1. If _satisfied_ is *true*, return *true*.
-          1. If _tMillis_ &le; 0, then return _satisfied_.
+          1. If _tMillis_ &le; 0, return _satisfied_.
           1. Let _timeBeforeWait_ be the time value (UTC) identifying the current time.
           1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
           1. Let _timeoutTime_ be ℝ(_timeBeforeWait_) + _tMillis_ + _additionalTimeout_.
@@ -2955,7 +2955,7 @@ markEffects: true
           1. If _waiterRecord_.[[Result]] is *"ok"*, then
             1. Set _satisfied_ to *true*.
           1. Else,
-            1. Assert: _waitierRecord_.[[Result]] is *"timed-out"*.
+            1. Assert: _waiterRecord_.[[Result]] is *"timed-out"*.
             1. Set _satisfied_ to *false*.
       </emu-alg>
     </emu-clause>
