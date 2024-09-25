@@ -2610,13 +2610,14 @@ markEffects: true
       </dl>
       <emu-alg>
         1. Assert: _mutex_ has a [[MutexWaiterList]] internal slot.
-        1. Assert: AgentCanSuspend() is *true*.
+        1. Assert: If _tMillis_ is not 0, AgentCanSuspend() is *true*.
         1. Let _WL_ be _mutex_.[[MutexWaiterList]].
         1. Perform EnterCriticalSection(_WL_).
         1. If _mutex_.[[IsLocked]] is *false*, then
           1. Set _mutex_.[[IsLocked]] to *true*.
           1. Perform LeaveCriticalSection(_WL_).
           1. Return ~acquired~.
+        1. If _tMillis_ is 0, return ~timed-out~.
         1. Let _thisAgent_ be AgentSignifier().
         1. Let _now_ be the time value (UTC) identifying the current time.
         1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
@@ -2706,59 +2707,39 @@ markEffects: true
     </emu-clause>
 
     <emu-clause id="sec-atomics.mutex.lock">
-      <h1>Atomics.Mutex.lock ( _mutex_ [ , _unlockToken_ [ , _timeout_ ] ] )</h1>
-      <p>This function puts the surrounding agent in a wait queue and suspends it until the mutex is unlocked or until the wait times out, returning a String differentiating those cases.</p>
+      <h1>Atomics.Mutex.lock ( _mutex_ [ , _unlockToken_ ] )</h1>
+      <p>This function puts the surrounding agent in a wait queue and suspends it until the mutex is unlocked.</p>
       <p>It performs the following steps when called:</p>
       <emu-alg>
         1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
         1. If _unlockToken_ not *undefined*, then
           1. Perform ? RequireInternalSlot(_unlockToken_, [[LockedMutex]]).
           1. If _unlockToken_.[[LockedMutex]] is not ~empty~, throw a *TypeError* exception.
-        1. If _timeout_ is *undefined*, set _timeout_ to *+∞*<sub>𝔽</sub>.
+        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. Let _result_ be LockMutex(_mutex_, +∞).
+        1. Assert: _result_ is ~acquired~.
+        1. Return UnlockTokenCreateIfNeeded(_unlockToken_, _mutex_).
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.mutex.lockifavailable">
+      <h1>Atomics.Mutex.lockIfAvailable ( _mutex_, _timeout_ [ , _unlockToken_ ] )</h1>
+      <p>This function puts the surrounding agent in a wait queue and suspends it until the mutex is unlocked, or until the wait times out. If _timeout_ is 0, this function can be called in agents that cannot suspend.</p>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
+        1. If _unlockToken_ not *undefined*, then
+          1. Perform ? RequireInternalSlot(_unlockToken_, [[LockedMutex]]).
+          1. If _unlockToken_.[[LockedMutex]] is not ~empty~, throw a *TypeError* exception.
         1. If _timeout_ is not a Number, throw a *TypeError* exception.
         1. If _timeout_ is either *NaN* or *+∞*<sub>𝔽</sub>, let _tMillis_ be +∞; else if _timeout_ is *-∞*<sub>𝔽</sub>, let _tMillis_ be 0; else let _tMillis_ be max(ℝ(_timeout_), 0).
-        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. If _tMillis_ is not 0 and AgentCanSuspend() is *false*, throw a *TypeError* exception.
         1. Let _result_ be LockMutex(_mutex_, _tMillis_).
         1. If _result_ is ~acquired~, then
           1. Return UnlockTokenCreateIfNeeded(_unlockToken_, _mutex_).
         1. Else,
           1. Assert: _result_ is ~timed-out~.
           1. Return *"timed-out"*.
-      </emu-alg>
-    </emu-clause>
-
-    <emu-clause id="sec-atomics.mutex.lockifavailable">
-      <h1>Atomics.Mutex.lockIfAvailable ( _mutex_ [ , _unlockToken_ ] )</h1>
-      <p>It performs the following steps when called:</p>
-      <emu-alg>
-        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
-        1. If _unlockToken_ not *undefined*, then
-          1. Perform ? RequireInternalSlot(_unlockToken_, [[LockedMutex]]).
-          1. If _unlockToken_.[[LockedMutex]] is not ~empty~, throw a *TypeError* exception.
-        1. Let _WL_ be _mutex_.[[MutexWaiterList]].
-        1. Perform EnterCriticalSection(_WL_).
-        1. If _mutex_.[[IsLocked]] is *false*, then
-          1. Set _mutex_.[[IsLocked]] to *true*.
-          1. Let _result_ be UnlockTokenCreateIfNeeded(_unlockToken_, _mutex_).
-        1. Else,
-          1. Let _result_ be *"already-locked"*.
-        1. Perform LeaveCriticalSection(_WL_).
-        1. Return _result_.
-      </emu-alg>
-    </emu-clause>
-
-    <emu-clause id="sec-atomics.mutex.withlock">
-      <h1>Atomics.Mutex.withLock ( _mutex_, _callback_ [ , _thisArg_ ] )</h1>
-      <p>It performs the following steps when called:</p>
-      <emu-alg>
-        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
-        1. If IsCallable(_callback_) is *false*, throw a *TypeError* exception.
-        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
-        1. Let _lockResult_ be LockMutex(_mutex_, +∞).
-        1. Assert: _lockResult_ is ~acquired~.
-        1. Let _callbackResult_ be Completion(Call(_callback_, _thisArg_)).
-        1. Perform UnlockMutex(_mutex_).
-        1. Return Completion(_callbackResult_).
       </emu-alg>
     </emu-clause>
   </emu-clause>
@@ -2918,7 +2899,7 @@ markEffects: true
     <emu-clause id="sec-atomics.condition.waitFor">
       <h1>Atomics.Condition.waitFor ( _cv_, _mutexUnlockToken_, _timeout_ [ , _predicate_ ] )</h1>
       <p>If _predicate_ is *undefined*, this function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until the condition variable is notified or until the wait times out, returning *true* for the former and *false* for the latter.</p>
-      <p>If a _predicate_ is passed and calling it returns *false*, this function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until _predicate_ returns *true*, or until the wait times out. The return value of the final call to _predicate_ is returned.</p>
+      <p>If a _predicate_ is passed and calling it returns *false*, this function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until _predicate_ returns *true*, or until the wait times out. Whenever _predicate_ is executing, the lock on the underlying mutex of _mutexUnlockToken_ is acquired. Returns return value of the final call to _predicate_.</p>
       <p>It performs the following steps when called:</p>
       <emu-alg>
         1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
