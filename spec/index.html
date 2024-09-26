@@ -2288,31 +2288,33 @@ markEffects: true
         1. Perform EnterCriticalSection(_WL_).
         1. If _mutex_.[[IsLockedBy]] is ~empty~, then
           1. Set _mutex_.[[IsLockedBy]] to _thisAgent_.
-          1. Perform LeaveCriticalSection(_WL_).
-          1. Return ~acquired~.
-        1. If _mutex_.[[IsLockedBy]] is _thisAgent_, then
-          1. Return ~deadlock~.
-        1. If _tMillis_ is 0, return ~timed-out~.
-        1. Let _now_ be the time value (UTC) identifying the current time.
-        1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
-        1. Let _timeoutTime_ be ℝ(_now_) + _tMillis_ + _additionalTimeout_.
-        1. NOTE: When _tMillis_ is +∞, _timeoutTime_ is also +∞.
-        1. Let _done_ be *false*.
-        1. Repeat, while _done_ is *false*,
-          1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: _timeoutTime_, [[Result]]: *"ok"* }.
-          1. Perform AddWaiter(_WL_, _waiterRecord_).
-          1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
-          1. If _mutex_.[[IsLockedBy]] is ~empty~, then
-            1. Set _mutex_.[[IsLockedBy]] to _thisAgent_.
-            1. Set _waiterRecord_.[[Result]] to *"ok"*.
-            1. Set _done_ to *true*.
-          1. Else if _waiterRecord_.[[Result]] is *"timed-out"*, then
-            1. Set _done_ to *true*.
+          1. Let _result_ be ~acquired~.
+        1. Else if _mutex_.[[IsLockedBy]] is _thisAgent_, then
+          1. Let _result_ be ~deadlock~.
+        1. Else,
+          1. If _tMillis_ is 0, return ~timed-out~.
+          1. Let _now_ be the time value (UTC) identifying the current time.
+          1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
+          1. Let _timeoutTime_ be ℝ(_now_) + _tMillis_ + _additionalTimeout_.
+          1. NOTE: When _tMillis_ is +∞, _timeoutTime_ is also +∞.
+          1. Let _done_ be *false*.
+          1. Repeat, while _done_ is *false*,
+            1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: _timeoutTime_, [[Result]]: *"ok"* }.
+            1. Perform AddWaiter(_WL_, _waiterRecord_).
+            1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
+            1. If _mutex_.[[IsLockedBy]] is ~empty~, then
+              1. Set _mutex_.[[IsLockedBy]] to _thisAgent_.
+              1. Set _waiterRecord_.[[Result]] to *"ok"*.
+              1. Set _done_ to *true*.
+            1. Else if _waiterRecord_.[[Result]] is *"timed-out"*, then
+              1. Set _done_ to *true*.
+          1. If _waiterRecord_.[[Result]] is *"ok"*, then
+            1. Let _result_ be ~acquired~.
+          1. Else,
+            1. Assert: _waiterRecord_.[[Result]] is *"timed-out"*.
+            1. Let _result_ be ~timed-out~.
         1. Perform LeaveCriticalSection(_WL_).
-        1. If _waiterRecord_.[[Result]] is *"ok"*, then
-          1. Return ~acquired~.
-        1. Assert: _waiterRecord_.[[Result]] is *"timed-out"*.
-        1. Return ~timed-out~.
+        1. Return _result_.
       </emu-alg>
     </emu-clause>
 
