@@ -219,36 +219,26 @@ class Atomics.Mutex {
   //
   // If unlockToken is not undefined, it must be an empty UnlockToken.
   //
+  // If unlockToken is undefined, returns a new UnlockToken.
+  // Otherwise return the unlockToken that was passed in.
+  static lock(mutex: Mutex,
+              unlockToken: UnlockToken|undefined = undefined)
+             : UnlockedToken;
+
+  // Attempt to acquire the lock on mutex.
+  //
   // If timeout is not Infinity, only block for timeout milliseconds. If
   // the operation timed out without acquiring the lock, returns
   // "timed-out".
   //
-  // When the lock is acquired, if unlockToken is undefined, returns a new
-  // UnlockToken if acquired. Otherwise return the unlockToken that was
-  // passed in. THe returned UnlockToken is bound to this mutex and can
-  // unlock it.
-  static lock(mutex: Mutex,
-              unlockToken: UnlockToken|undefined = undefined,
-              timeout: Number = Infinity)
-             : "timed-out"|UnlockedToken;
-
-  // Attempt to acquire the lock on mutex.
-  //
-  // If the mutex is already locked, returns "already-locked".
+  // If timeout is 0, returns immediately without blocking if the lock
+  // cannot be acquired.
   //
   // unlockToken behaves as it does in the lock method.
   static lockIfAvailable(mutex: Mutex,
+                         timeout: Number,
                          unlockToken: UnlockToken|undefined = undefined)
-                        : "already-locked"|UnlockToken;
-
-  // Attempt to acquire the lock on mutex. With the lock acquired, call
-  // the callback, then unlock the mutex.
-  //
-  // If the mutex is already locked, this blocks the agent until the lock
-  // is acquired.
-  static withLock(mutex: Mutex,
-                  callback: Callable,
-                  thisArg: any = undefined): any;
+                        : "timed-out"|UnlockToken;
 }
 ```
 
@@ -266,8 +256,8 @@ class Atomics.Mutex.UnlockToken {
   // Otherwise returns false.
   unlock(): bool;
 
-  // An alias for unlock.
-  [Symbol.dispose]();
+  // Like unlock, but returns undefined instead of bool.
+  [Symbol.dispose](): undefined;
 }
 ```
 
@@ -296,7 +286,6 @@ worker.postMessage({ point });
 {
   using lock = Atomics.Mutex.lock(point.mutex);
   console.log(point.x, point.y);
-  token.unlock();
 }
 ```
 
@@ -330,19 +319,35 @@ class Atomics.Condition {
   constructor();
 
   // Atomically unlocks the unlockToken and blocks the current agent until cv
-  // is notified or timed out.
+  // is notified.
   //
   // unlockToken must not be empty.
   //
   // When the agent is resumed, the lock underlying mutex in unlockToken is
   // reacquired, blocking if necessary.
   //
-  // If the agent resumed by being notified, returns "ok".
-  // If the agent resumed by timing out, returns "timed-out".
+  // Returns undefined.
   static wait(cv: Condition,
-              unlockToken: UnlockToken,
-              timeout: Number = Infinity)
-             : "ok"|"timed-out"
+              unlockToken: UnlockToken): undefined
+
+  // Atomically unlocks the unlockToken and blocks the current agent until cv
+  // is notified or timed out.
+  //
+  // unlockToken must not be empty.
+  //
+  // timeout is in milliseconds.
+  //
+  // If predicate is not undefined, this method returns after predicate returns
+  // true, or if timed out. If timed out, the final return value of the
+  // predicate is returned. Whenever the predicate is executing, the lock on the
+  // underlying mutex of unlockToken is acquired.
+  //
+  // If predicate is undefined, returns true if the wait was notified, and false
+  // if timed out.
+  static waitFor(cv: Condition,
+                 unlockToken: UnlockToken,
+                 timeout: Number,
+                 predicate: Callable|undefined): bool
 
   // Notifies count waiters waiting on the condition variable cv.
   //
