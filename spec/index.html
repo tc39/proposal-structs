@@ -2744,7 +2744,8 @@ markEffects: true
           1. Return UnlockTokenCreateIfNeeded(_unlockToken_, _mutex_).
         1. Else,
           1. Assert: _result_ is ~timed-out~.
-          1. Return *"timed-out"*.
+          1. Return *null*.
+          1. NOTE: The return value of the timed-out case is an open design question. Specifically, whether the return value ought to throw when attempted to be used with the `using` syntax.
       </emu-alg>
     </emu-clause>
   </emu-clause>
