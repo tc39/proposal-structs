@@ -229,7 +229,7 @@ class Atomics.Mutex {
   //
   // If timeout is not Infinity, only block for timeout milliseconds. If
   // the operation timed out without acquiring the lock, returns
-  // "timed-out".
+  // null.
   //
   // If timeout is 0, returns immediately without blocking if the lock
   // cannot be acquired.
@@ -238,7 +238,7 @@ class Atomics.Mutex {
   static lockIfAvailable(mutex: Mutex,
                          timeout: Number,
                          unlockToken: UnlockToken|undefined = undefined)
-                        : "timed-out"|UnlockToken;
+                        : UnlockToken|null;
 }
 ```
 
