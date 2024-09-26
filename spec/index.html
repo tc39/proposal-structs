@@ -1659,6 +1659,7 @@ markEffects: true
           [[Get]] (
             _P_: a property key,
             _Receiver_: an ECMAScript language value,
+            <ins>_unsafe_: a Boolean,</ins>
           ): either a normal completion containing an ECMAScript language value or a throw completion
         </h1>
         <dl class="header">
@@ -1667,7 +1668,7 @@ markEffects: true
         </dl>
 
         <emu-alg>
-          1. Return ? OrdinaryGet(_O_, _P_, _Receiver_<ins>, *false*</ins>).
+          1. Return ? OrdinaryGet(_O_, _P_, _Receiver_<ins>, _unsafe_</ins>).
         </emu-alg>
 
         <emu-clause id="sec-ordinaryget" type="abstract operation">
@@ -1703,6 +1704,7 @@ markEffects: true
             _P_: a property key,
             _V_: an ECMAScript language value,
             _Receiver_: an ECMAScript language value,
+            <ins>_unsafe_: a Boolean,</ins>
           ): either a normal completion containing a Boolean or a throw completion
         </h1>
         <dl class="header">
@@ -1710,7 +1712,7 @@ markEffects: true
           <dd>an ordinary object _O_</dd>
         </dl>
         <emu-alg>
-          1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_<ins>, *false*</ins>).
+          1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_<ins>, _unsafe_</ins>).
         </emu-alg>
 
         <emu-clause id="sec-ordinaryset" type="abstract operation">
