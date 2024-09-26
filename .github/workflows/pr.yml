@@ -5,8 +5,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
+    permissions: write-all
     if: ${{ github.event.number }}
     steps:
       - uses: actions/checkout@v4
