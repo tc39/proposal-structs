@@ -559,8 +559,6 @@ markEffects: true
         1. Set _result_.[[HasProperty]] as specified in <emu-xref href="#sec-shared-struct-hasproperty"></emu-xref>.
         1. Set _result_.[[Get]] as specified in <emu-xref href="#sec-shared-struct-get"></emu-xref>.
         1. Set _result_.[[Set]] as specified in <emu-xref href="#sec-shared-struct-set"></emu-xref>.
-        1. Set _result_.[[UnsafeGet]] as specified in <emu-xref href="#sec-shared-struct-unsafeget"></emu-xref>.
-        1. Set _result_.[[UnsafeSet]] as specified in <emu-xref href="#sec-shared-struct-unsafeset"></emu-xref>.
         1. Set _result_.[[Delete]] as specified in <emu-xref href="#sec-shared-struct-delete"></emu-xref>.
         1. Perform _initializer_(_result_).
         1. Perform ! _result_.[[PreventExtensions]]().
@@ -692,6 +690,7 @@ markEffects: true
         [[Get]] (
           _P_: a property key,
           _Receiver_: an ECMAScript language value,
+          _unsafe_: a Boolean,
         ): either a normal completion containing *undefined* or a throw completion
       </h1>
       <dl class="header">
@@ -699,9 +698,11 @@ markEffects: true
         <dd>a shared Struct _O_</dd>
       </dl>
       <emu-alg>
+        1. If _O_ does not have an own property with key _P_, return *undefined*.
+        1. If _unsafe_ is *false*, throw a *TypeError* exception.
         1. Let _ownDesc_ be ! _O_.[[GetOwnProperty]](_P_).
-        1. If _ownDesc_ is *undefined*, return *undefined*.
-        1. Throw a *TypeError* exception.
+        1. Assert: _ownDesc_ is not *undefined*.
+        1. Return _ownDesc.[[Value]].
       </emu-alg>
     </emu-clause>
 
@@ -711,42 +712,7 @@ markEffects: true
           _P_: a property key,
           _V_: an ECMAScript language value,
           _Receiver_: an ECMAScript language value,
-        ): either a normal completion containing a Boolean or a throw completion
-      </h1>
-      <dl class="header">
-        <dt>for</dt>
-        <dd>a Shared Struct _O_</dd>
-      </dl>
-      <emu-alg>
-        1. If _O_ does not have an own property with key _P_, return *false*.
-        1. Throw a *TypeError* exception.
-      </emu-alg>
-    </emu-clause>
-
-    <emu-clause id="sec-shared-struct-unsafeget" type="internal method">
-      <h1>
-        [[UnsafeGet]] (
-          _P_: a property key,
-          _Receiver_: an ECMAScript language value,
-        ): a normal completion containing an ECMAScript language value
-      </h1>
-      <dl class="header">
-        <dt>for</dt>
-        <dd>a shared Struct _O_</dd>
-      </dl>
-      <emu-alg>
-        1. Let _ownDesc_ be ! _O_.[[GetOwnProperty]](_P_).
-        1. If _ownDesc_ is *undefined*, return *undefined*.
-        1. Return _ownDesc_.[[Value]].
-      </emu-alg>
-    </emu-clause>
-
-    <emu-clause id="sec-shared-struct-unsafeset" type="internal method">
-      <h1>
-        [[UnsafeSet]] (
-          _P_: a property key,
-          _V_: an ECMAScript language value,
-          _Receiver_: an ECMAScript language value,
+          _unsafe_: a Boolean,
         ): either a normal completion containing a Boolean or a throw completion
       </h1>
       <dl class="header">
@@ -756,6 +722,7 @@ markEffects: true
       <emu-alg>
         1. If _O_ does not have an own property with key _P_, return *false*.
         1. NOTE: [[GetOwnPropertyDescriptor]] is not used to avoid an unnecessary ReadSharedMemory event.
+        1. If _unsafe_ is *false*, throw a *TypeError* exception.
         1. Let _desc_ be PropertyDescriptor { [[Value]]: _V_, [[Writable]]: *true*, [[Enumerable]]: *true*, [[Configurable]]: *false* }.
         1. Return ? _O_.[[DefineOwnProperty]](_P_, _desc_).
       </emu-alg>
@@ -1636,11 +1603,7 @@ markEffects: true
             1. [id="step-getvalue-toobject"] Let _baseObj_ be ? ToObject(_V_.[[Base]]).
             1. If IsPrivateReference(_V_) is *true*, then
               1. Return ? PrivateGet(_baseObj_, _V_.[[ReferencedName]]).
-            1. <del>Return ? <emu-meta effects="user-code">_baseObj_.[[Get]]</emu-meta>(_V_.[[ReferencedName]], GetThisValue(_V_)).</del>
-            1. <ins>If _V_.[[Unsafe]] is *true*, then</ins>
-              1. <ins>Return ? <emu-meta effects="user-code">_baseObj_.[[UnsafeGet]]</emu-meta>(_V_.[[ReferencedName]], GetThisValue(_V_)).</ins>
-            1. <ins>Else,</ins>
-              1. <ins>Return ? <emu-meta effects="user-code">_baseObj_.[[Get]]</emu-meta>(_V_.[[ReferencedName]], GetThisValue(_V_)).</ins>
+            1. Return ? <emu-meta effects="user-code">_baseObj_.[[Get]]</emu-meta>(_V_.[[ReferencedName]], GetThisValue(_V_)<ins>, _V_.[[Unsafe]]</ins>).
           1. Else,
             1. Let _base_ be _V_.[[Base]].
             1. Assert: _base_ is an Environment Record.
@@ -1671,11 +1634,7 @@ markEffects: true
             1. [id="step-putvalue-toobject"] Let _baseObj_ be ? ToObject(_V_.[[Base]]).
             1. If IsPrivateReference(_V_) is *true*, then
               1. Return ? PrivateSet(_baseObj_, _V_.[[ReferencedName]], _W_).
-            1. <del>Let _succeeded_ be ? <emu-meta effects="user-code">_baseObj_.[[Set]]</emu-meta>(_V_.[[ReferencedName]], _W_, GetThisValue(_V_)).</del>
-            1. <ins>If _V_.[[Unsafe]] is *true*, then</ins>
-              1. <ins>Let _succeeded_ be ? <emu-meta effects="user-code">_baseObj_.[[UnsafeSet]]</emu-meta>(_V_.[[ReferencedName]], _W_, GetThisValue(_V_)).</ins>
-            1. <ins>Else,</ins>
-              1. <ins>Let _succeeded_ be ? <emu-meta effects="user-code">_baseObj_.[[Set]]</emu-meta>(_V_.[[ReferencedName]], _W_, GetThisValue(_V_)).</ins>
+            1. Let _succeeded_ be ? <emu-meta effects="user-code">_baseObj_.[[Set]]</emu-meta>(_V_.[[ReferencedName]], _W_, GetThisValue(_V_)<ins>, _V_.[[Unsafe]]</ins>).
             1. If _succeeded_ is *false* and _V_.[[Strict]] is *true*, throw a *TypeError* exception.
             1. Return ~unused~.
           1. Else,
@@ -1700,6 +1659,7 @@ markEffects: true
           [[Get]] (
             _P_: a property key,
             _Receiver_: an ECMAScript language value,
+            <ins>_unsafe_: a Boolean,</ins>
           ): either a normal completion containing an ECMAScript language value or a throw completion
         </h1>
         <dl class="header">
@@ -1708,7 +1668,7 @@ markEffects: true
         </dl>
 
         <emu-alg>
-          1. Return ? OrdinaryGet(_O_, _P_, _Receiver_<ins>, *false*</ins>).
+          1. Return ? OrdinaryGet(_O_, _P_, _Receiver_<ins>, _unsafe_</ins>).
         </emu-alg>
 
         <emu-clause id="sec-ordinaryget" type="abstract operation">
@@ -1728,11 +1688,7 @@ markEffects: true
             1. If _desc_ is *undefined*, then
               1. Let _parent_ be ? <emu-meta effects="user-code">_O_.[[GetPrototypeOf]]</emu-meta>().
               1. If _parent_ is *null*, return *undefined*.
-              1. <del>Return ? <emu-meta effects="user-code">_parent_.[[Get]]</emu-meta>(_P_, _Receiver_).</del>
-              1. <ins>If _unsafe_ is *true*, then</ins>
-                1. <ins>Return ? <emu-meta effects="user-code">_parent_.[[UnsafeGet]]</emu-meta>(_P_, _Receiver_).</ins>
-              1. <ins>Else,</ins>
-                1. <ins>Return ? <emu-meta effects="user-code">_parent_.[[Get]]</emu-meta>(_P_, _Receiver_).</ins>
+              1. Return ? <emu-meta effects="user-code">_parent_.[[Get]]</emu-meta>(_P_, _Receiver_<ins>, _unsafe_</ins>).
             1. If IsDataDescriptor(_desc_) is *true*, return _desc_.[[Value]].
             1. Assert: IsAccessorDescriptor(_desc_) is *true*.
             1. Let _getter_ be _desc_.[[Get]].
@@ -1748,6 +1704,7 @@ markEffects: true
             _P_: a property key,
             _V_: an ECMAScript language value,
             _Receiver_: an ECMAScript language value,
+            <ins>_unsafe_: a Boolean,</ins>
           ): either a normal completion containing a Boolean or a throw completion
         </h1>
         <dl class="header">
@@ -1755,7 +1712,7 @@ markEffects: true
           <dd>an ordinary object _O_</dd>
         </dl>
         <emu-alg>
-          1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_<ins>, *false*</ins>).
+          1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_<ins>, _unsafe_</ins>).
         </emu-alg>
 
         <emu-clause id="sec-ordinaryset" type="abstract operation">
@@ -1795,11 +1752,7 @@ markEffects: true
             1. If _ownDesc_ is *undefined*, then
               1. Let _parent_ be ? <emu-meta effects="user-code">_O_.[[GetPrototypeOf]]</emu-meta>().
               1. If _parent_ is not *null*, then
-                1. <del>Return ? <emu-meta effects="user-code">_parent_.[[Set]]</emu-meta>(_P_, _V_, _Receiver_).</del>
-                1. <ins>If _unsafe_ is *true*, then</ins>
-                  1. <ins>Return ? <emu-meta effects="user-code">_parent_.[[UnsafeSet]]</emu-meta>(_P_, _V_, _Receiver_).</ins>
-                1. <ins>Else,</ins>
-                  1. <ins>Return ? <emu-meta effects="user-code">_parent_.[[Set]]</emu-meta>(_P_, _V_, _Receiver_).</ins>
+                1. Return ? <emu-meta effects="user-code">_parent_.[[Set]]</emu-meta>(_P_, _V_, _Receiver_<ins>, _unsafe_</ins>).
               1. Else,
                 1. Set _ownDesc_ to the PropertyDescriptor { [[Value]]: *undefined*, [[Writable]]: *true*, [[Enumerable]]: *true*, [[Configurable]]: *true* }.
             1. If IsDataDescriptor(_ownDesc_) is *true*, then
@@ -1822,44 +1775,6 @@ markEffects: true
           </emu-alg>
         </emu-clause>
       </emu-clause>
-
-      <ins class="block">
-      <emu-clause id="sec-ordinary-object-internal-methods-and-internal-slots-unsafeget-p-receiver" type="internal method">
-        <h1>
-          [[UnsafeGet]] (
-            _P_: a property key,
-            _Receiver_: an ECMAScript language value,
-          ): either a normal completion containing an ECMAScript language value or a throw completion
-        </h1>
-        <dl class="header">
-          <dt>for</dt>
-          <dd>an ordinary object _O_</dd>
-        </dl>
-
-        <emu-alg>
-          1. Return ? OrdinaryGet(O, P, _Receiver_, *true*).
-        </emu-alg>
-      </emu-clause>
-      </ins>
-
-      <ins class="block">
-      <emu-clause id="sec-ordinary-object-internal-methods-and-internal-slots-unsafeset-p-v-receiver" type="internal method">
-        <h1>
-          [[UnsafeSet]] (
-            _P_: a property key,
-            _V_: an ECMAScript language value,
-            _Receiver_: an ECMAScript language value,
-          ): either a normal completion containing a Boolean or a throw completion
-        </h1>
-        <dl class="header">
-          <dt>for</dt>
-          <dd>an ordinary object _O_</dd>
-        </dl>
-        <emu-alg>
-          1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_, *true*).
-        </emu-alg>
-      </emu-clause>
-      </ins>
     </emu-clause>
 
     <emu-clause id="sec-built-in-exotic-object-internal-methods-and-slots">
@@ -1871,6 +1786,7 @@ markEffects: true
             [[Get]] (
               _P_: a property key,
               _Receiver_: an ECMAScript language value,
+              <ins>_unsafe_: a Boolean,</ins>
             ): either a normal completion containing an ECMAScript language value or a throw completion
           </h1>
           <dl class="header">
@@ -1881,7 +1797,7 @@ markEffects: true
             1. Let _map_ be _args_.[[ParameterMap]].
             1. Let _isMapped_ be ! HasOwnProperty(_map_, _P_).
             1. If _isMapped_ is *false*, then
-              1. Return ? OrdinaryGet(_args_, _P_, _Receiver_<ins>, *false*</ins>).
+              1. Return ? OrdinaryGet(_args_, _P_, _Receiver_<ins>, _unsafe_</ins>).
             1. Else,
               1. Assert: _map_ contains a formal parameter mapping for _P_.
               1. Return ! Get(_map_, _P_).
@@ -1894,6 +1810,7 @@ markEffects: true
               _P_: a property key,
               _V_: an ECMAScript language value,
               _Receiver_: an ECMAScript language value,
+              <ins>_unsafe_: a Boolean,</ins>
             ): either a normal completion containing a Boolean or a throw completion
           </h1>
           <dl class="header">
@@ -1909,60 +1826,9 @@ markEffects: true
             1. If _isMapped_ is *true*, then
               1. Assert: The following Set will succeed, since formal parameters mapped by arguments objects are always writable.
               1. Perform ! Set(_map_, _P_, _V_, *false*).
-            1. Return ? OrdinarySet(_args_, _P_, _V_, _Receiver_<ins>, *false*</ins>).
+            1. Return ? OrdinarySet(_args_, _P_, _V_, _Receiver_<ins>, _unsafe_</ins>).
           </emu-alg>
         </emu-clause>
-
-        <ins class="block">
-        <emu-clause id="sec-arguments-exotic-objects-unsafeget-p-receiver" type="internal method">
-          <h1>
-            [[UnsafeGet]] (
-              _P_: a property key,
-              _Receiver_: an ECMAScript language value,
-            ): either a normal completion containing an ECMAScript language value or a throw completion
-          </h1>
-          <dl class="header">
-            <dt>for</dt>
-            <dd>an arguments exotic object _args_</dd>
-          </dl>
-          <emu-alg>
-            1. Let _map_ be _args_.[[ParameterMap]].
-            1. Let _isMapped_ be ! HasOwnProperty(_map_, _P_).
-            1. If _isMapped_ is *false*, then
-              1. Return ? OrdinaryGet(_args_, _P_, _Receiver_<ins>, *true*</ins>).
-            1. Else,
-              1. Assert: _map_ contains a formal parameter mapping for _P_.
-              1. Return ! Get(_map_, _P_).
-          </emu-alg>
-        </emu-clause>
-        </ins>
-
-        <ins class="block">
-        <emu-clause id="sec-arguments-exotic-objects-unsafeset-p-v-receiver" type="internal method">
-          <h1>
-            [[UnsafeSet]] (
-              _P_: a property key,
-              _V_: an ECMAScript language value,
-              _Receiver_: an ECMAScript language value,
-            ): either a normal completion containing a Boolean or a throw completion
-          </h1>
-          <dl class="header">
-            <dt>for</dt>
-            <dd>an arguments exotic object _args_</dd>
-          </dl>
-          <emu-alg>
-            1. If SameValue(_args_, _Receiver_) is *false*, then
-              1. Let _isMapped_ be *false*.
-            1. Else,
-              1. Let _map_ be _args_.[[ParameterMap]].
-              1. Let _isMapped_ be ! HasOwnProperty(_map_, _P_).
-            1. If _isMapped_ is *true*, then
-              1. Assert: The following Set will succeed, since formal parameters mapped by arguments objects are always writable.
-              1. Perform ! Set(_map_, _P_, _V_, *false*).
-            1. Return ? OrdinarySet(_args_, _P_, _V_, _Receiver_<ins>, *true*</ins>).
-          </emu-alg>
-        </emu-clause>
-        </ins>
       </emu-clause>
 
       <emu-clause id="sec-typedarray-exotic-objects" oldids="sec-integer-indexed-exotic-objects">
@@ -1972,6 +1838,7 @@ markEffects: true
             [[Get]] (
               _P_: a property key,
               _Receiver_: an ECMAScript language value,
+              <ins>_unsafe_: a Boolean,</ins>
             ): either a normal completion containing an ECMAScript language value or a throw completion
           </h1>
           <dl class="header">
@@ -1983,7 +1850,7 @@ markEffects: true
               1. Let _numericIndex_ be CanonicalNumericIndexString(_P_).
               1. If _numericIndex_ is not *undefined*, then
                 1. Return TypedArrayGetElement(_O_, _numericIndex_).
-            1. Return ? OrdinaryGet(_O_, _P_, _Receiver_<ins>, *false*</ins>).
+            1. Return ? OrdinaryGet(_O_, _P_, _Receiver_<ins>, _unsafe_</ins>).
           </emu-alg>
         </emu-clause>
 
@@ -1993,6 +1860,7 @@ markEffects: true
               _P_: a property key,
               _V_: an ECMAScript language value,
               _Receiver_: an ECMAScript language value,
+              <ins>_unsafe_: a Boolean,</ins>
             ): either a normal completion containing a Boolean or a throw completion
           </h1>
           <dl class="header">
@@ -2007,57 +1875,9 @@ markEffects: true
                   1. Perform ? TypedArraySetElement(_O_, _numericIndex_, _V_).
                   1. Return *true*.
                 1. If IsValidIntegerIndex(_O_, _numericIndex_) is *false*, return *true*.
-            1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_<ins>, *false*</ins>).
+            1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_<ins>, _unsafe_</ins>).
           </emu-alg>
         </emu-clause>
-
-        <ins class="block">
-        <emu-clause id="sec-typedarray-unsafeget" type="internal method">
-          <h1>
-            [[UnsafeGet]] (
-              _P_: a property key,
-              _Receiver_: an ECMAScript language value,
-            ): either a normal completion containing an ECMAScript language value or a throw completion
-          </h1>
-          <dl class="header">
-            <dt>for</dt>
-            <dd>a TypedArray _O_</dd>
-          </dl>
-          <emu-alg>
-            1. If _P_ is a String, then
-              1. Let _numericIndex_ be CanonicalNumericIndexString(_P_).
-              1. If _numericIndex_ is not *undefined*, then
-                1. Return TypedArrayGetElement(_O_, _numericIndex_).
-            1. Return ? OrdinaryGet(_O_, _P_, _Receiver_<ins>, *true*</ins>).
-          </emu-alg>
-        </emu-clause>
-        </ins>
-
-        <ins class="block">
-        <emu-clause id="sec-typedarray-unsafeset" type="internal method">
-          <h1>
-            [[UnsafeSet]] (
-              _P_: a property key,
-              _V_: an ECMAScript language value,
-              _Receiver_: an ECMAScript language value,
-            ): either a normal completion containing a Boolean or a throw completion
-          </h1>
-          <dl class="header">
-            <dt>for</dt>
-            <dd>a TypedArray _O_</dd>
-          </dl>
-          <emu-alg>
-            1. If _P_ is a String, then
-              1. Let _numericIndex_ be CanonicalNumericIndexString(_P_).
-              1. If _numericIndex_ is not *undefined*, then
-                1. If SameValue(_O_, _Receiver_) is *true*, then
-                  1. Perform ? TypedArraySetElement(_O_, _numericIndex_, _V_).
-                  1. Return *true*.
-                1. If IsValidIntegerIndex(_O_, _numericIndex_) is *false*, return *true*.
-            1. Return ? OrdinarySet(_O_, _P_, _V_, _Receiver_<ins>, *true*</ins>).
-          </emu-alg>
-        </emu-clause>
-        </ins>
       </emu-clause>
 
       <emu-clause id="sec-module-namespace-exotic-objects">
@@ -2067,6 +1887,7 @@ markEffects: true
             [[Get]] (
               _P_: a property key,
               _Receiver_: an ECMAScript language value,
+              <ins>_unsafe_: a Boolean,</ins>
             ): either a normal completion containing an ECMAScript language value or a throw completion
           </h1>
           <dl class="header">
@@ -2075,7 +1896,7 @@ markEffects: true
           </dl>
           <emu-alg>
             1. If _P_ is a Symbol, then
-              1. Return ! OrdinaryGet(_O_, _P_, _Receiver_<ins>, *false*</ins>).
+              1. Return ! OrdinaryGet(_O_, _P_, _Receiver_<ins>, _unsafe_</ins>).
             1. Let _exports_ be _O_.[[Exports]].
             1. If _exports_ does not contain _P_, return *undefined*.
             1. Let _m_ be _O_.[[Module]].
@@ -2094,33 +1915,13 @@ markEffects: true
           </emu-note>
         </emu-clause>
 
-        <ins class="block">
-        <emu-clause id="sec-module-namespace-exotic-objects-unsafeget-p-receiver" type="internal method">
+        <emu-clause id="sec-module-namespace-exotic-objects-set-p-v-receiver" type="internal method">
           <h1>
-            [[UnsafeGet]] (
-              _P_: a property key,
-              _Receiver_: an ECMAScript language value,
-            ): either a normal completion containing an ECMAScript language value or a throw completion
-          </h1>
-          <dl class="header">
-            <dt>for</dt>
-            <dd>a module namespace exotic object _O_</dd>
-          </dl>
-          <emu-alg>
-            1. If _P_ is a Symbol, then
-              1. Return ! OrdinaryGet(_O_, _P_, _Receiver_<ins>, *true*</ins>).
-            1. Return ? O.[[Get]](_P_, _Receiver_).
-          </emu-alg>
-        </emu-clause>
-        </ins>
-
-        <ins class="block">
-        <emu-clause id="sec-module-namespace-exotic-objects-unsafeset-p-v-receiver" type="internal method">
-          <h1>
-            [[UnsafeSet]] (
+            [[Set]] (
               _P_: a property key,
               _V_: an ECMAScript language value,
               _Receiver_: an ECMAScript language value,
+              <ins>_unsafe_: a Boolean,</ins>
             ): a normal completion containing *false*
           </h1>
           <dl class="header">
@@ -2131,156 +1932,19 @@ markEffects: true
             1. Return *false*.
           </emu-alg>
         </emu-clause>
-        </ins>
       </emu-clause>
     </emu-clause>
 
     <emu-clause id="sec-proxy-object-internal-methods-and-internal-slots">
       <h1>Proxy Object Internal Methods and Internal Slots</h1>
-      <p>A Proxy object is an exotic object whose essential internal methods are partially implemented using ECMAScript code. Every Proxy object has an internal slot called [[ProxyHandler]]. The value of [[ProxyHandler]] is an object, called the proxy's <em>handler object</em>, or *null*. Methods (see <emu-xref href="#table-proxy-handler-methods"></emu-xref>) of a handler object may be used to augment the implementation for one or more of the Proxy object's internal methods. Every Proxy object also has an internal slot called [[ProxyTarget]] whose value is either an object or the *null* value. This object is called the proxy's <em>target object</em>.</p>
 
-      <p>An object is a <dfn id="proxy-exotic-object" variants="Proxy exotic objects">Proxy exotic object</dfn> if its essential internal methods (including [[Call]] and [[Construct]], if applicable) use the definitions in this section. These internal methods are installed in ProxyCreate.</p>
-
-      <emu-table id="table-proxy-handler-methods" caption="Proxy Handler Methods" oldids="table-30">
-        <table>
-          <tr>
-            <th>
-              Internal Method
-            </th>
-            <th>
-              Handler Method
-            </th>
-          </tr>
-          <tr>
-            <td>
-              [[GetPrototypeOf]]
-            </td>
-            <td>
-              `getPrototypeOf`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[SetPrototypeOf]]
-            </td>
-            <td>
-              `setPrototypeOf`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[IsExtensible]]
-            </td>
-            <td>
-              `isExtensible`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[PreventExtensions]]
-            </td>
-            <td>
-              `preventExtensions`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[GetOwnProperty]]
-            </td>
-            <td>
-              `getOwnPropertyDescriptor`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[DefineOwnProperty]]
-            </td>
-            <td>
-              `defineProperty`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[HasProperty]]
-            </td>
-            <td>
-              `has`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <ins>[[UnsafeGet]]</ins>
-            </td>
-            <td>
-              <ins>`get`</ins>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[Get]]
-            </td>
-            <td>
-              `get`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <ins>[[UnsafeSet]]</ins>
-            </td>
-            <td>
-              <ins>`set`</ins>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[Set]]
-            </td>
-            <td>
-              `set`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[Delete]]
-            </td>
-            <td>
-              `deleteProperty`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[OwnPropertyKeys]]
-            </td>
-            <td>
-              `ownKeys`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[Call]]
-            </td>
-            <td>
-              `apply`
-            </td>
-          </tr>
-          <tr>
-            <td>
-              [[Construct]]
-            </td>
-            <td>
-              `construct`
-            </td>
-          </tr>
-        </table>
-      </emu-table>
-
-      <ins class="block">
       <emu-clause id="sec-proxy-object-internal-methods-and-internal-slots-get-p-receiver" type="internal method">
         <h1>
-          [[UnsafeGet]] (
+          [[Get]] (
             _P_: a property key,
             _Receiver_: an ECMAScript language value,
-          ): either a normal completion containing an ECMAScript language value or a throw completion
+            <ins>_unsafe_: a Boolean,</ins>
+            ): either a normal completion containing an ECMAScript language value or a throw completion
         </h1>
         <dl class="header">
           <dt>for</dt>
@@ -2293,7 +1957,7 @@ markEffects: true
           1. Assert: _handler_ is an Object.
           1. Let _trap_ be ? GetMethod(_handler_, *"get"*).
           1. If _trap_ is *undefined*, then
-            1. Return ? <emu-meta effects="user-code">_target_.[[UnsafeGet]]</emu-meta>(_P_, _Receiver_).
+            1. Return ? <emu-meta effects="user-code">_target_.[[Get]]</emu-meta>(_P_, _Receiver_<ins>, *true*</ins>).
           1. Let _trapResult_ be ? Call(_trap_, _handler_, « _target_, _P_, _Receiver_ »).
           1. Let _targetDesc_ be ? <emu-meta effects="user-code">_target_.[[GetOwnProperty]]</emu-meta>(_P_).
           1. If _targetDesc_ is not *undefined* and _targetDesc_.[[Configurable]] is *false*, then
@@ -2304,7 +1968,7 @@ markEffects: true
           1. Return _trapResult_.
         </emu-alg>
         <emu-note>
-          <p>[[UnsafeGet]] for Proxy objects enforces the following invariants:</p>
+          <p>[[Get]] for Proxy objects enforces the following invariants:</p>
           <ul>
             <li>
               The value reported for a property must be the same as the value of the corresponding target object property if the target object property is a non-writable, non-configurable own data property.
@@ -2314,17 +1978,21 @@ markEffects: true
             </li>
           </ul>
         </emu-note>
+        <ins class="block">
+        <emu-note>
+          <p>Proxies are always unsafe and permit reading from fields on Shared Struct instances even outside of an `unsafe {}` block.</p>
+        </emu-note>
+        </ins>
       </emu-clause>
-      </ins>
 
-      <ins class="block">
       <emu-clause id="sec-proxy-object-internal-methods-and-internal-slots-set-p-v-receiver" type="internal method">
         <h1>
-          [[UnsafeSet]] (
+          [[Set]] (
             _P_: a property key,
             _V_: an ECMAScript language value,
             _Receiver_: an ECMAScript language value,
-          ): either a normal completion containing a Boolean or a throw completion
+            <ins>_unsafe_: a Boolean,</ins>
+            ): either a normal completion containing a Boolean or a throw completion
         </h1>
         <dl class="header">
           <dt>for</dt>
@@ -2337,7 +2005,7 @@ markEffects: true
           1. Assert: _handler_ is an Object.
           1. Let _trap_ be ? GetMethod(_handler_, *"set"*).
           1. If _trap_ is *undefined*, then
-            1. Return ? <emu-meta effects="user-code">_target_.[[UnsafeSet]]</emu-meta>(_P_, _V_, _Receiver_).
+            1. Return ? <emu-meta effects="user-code">_target_.[[Set]]</emu-meta>(_P_, _V_, _Receiver_<ins>, *true*</ins>).
           1. Let _booleanTrapResult_ be ToBoolean(? Call(_trap_, _handler_, « _target_, _P_, _V_, _Receiver_ »)).
           1. If _booleanTrapResult_ is *false*, return *false*.
           1. Let _targetDesc_ be ? <emu-meta effects="user-code">_target_.[[GetOwnProperty]]</emu-meta>(_P_).
@@ -2349,10 +2017,10 @@ markEffects: true
           1. Return *true*.
         </emu-alg>
         <emu-note>
-          <p>[[UnsafeSet]] for Proxy objects enforces the following invariants:</p>
+          <p>[[Set]] for Proxy objects enforces the following invariants:</p>
           <ul>
             <li>
-              The result of [[UnsafeSet]] is a Boolean value.
+              The result of [[Set]] is a Boolean value.
             </li>
             <li>
               Cannot change the value of a property to be different from the value of the corresponding target object property if the corresponding target object property is a non-writable, non-configurable own data property.
@@ -2362,8 +2030,12 @@ markEffects: true
             </li>
           </ul>
         </emu-note>
-      </emu-clause>
-      </ins>
+        <ins class="block">
+          <emu-note>
+            <p>Proxies are always unsafe and permit writing to fields on Shared Struct instances even outside of an `unsafe {}` block.</p>
+          </emu-note>
+          </ins>
+        </emu-clause>
     </emu-clause>
   </emu-clause>
 
@@ -2552,7 +2224,7 @@ markEffects: true
           1. Let _key_ be ? ToPropertyKey(_propertyKey_).
           1. If _receiver_ is not present, then
             1. Set _receiver_ to _target_.
-          1. Return ? <emu-meta effects="user-code">_target_.<del>[[Get]]</del><ins>[[UnsafeGet]]</ins></emu-meta>(_key_, _receiver_).
+          1. Return ? <emu-meta effects="user-code">_target_.[[Get]]</emu-meta>(_key_, _receiver_<ins>, *true*</ins>).
         </emu-alg>
       </emu-clause>
       <emu-clause id="sec-reflect.set">
@@ -2563,7 +2235,7 @@ markEffects: true
           1. Let _key_ be ? ToPropertyKey(_propertyKey_).
           1. If _receiver_ is not present, then
             1. Set _receiver_ to _target_.
-          1. Return ? <emu-meta effects="user-code">_target_.<del>[[Set]]</del><ins>[[UnsafeSet]]</ins></emu-meta>(_key_, _V_, _receiver_).
+          1. Return ? <emu-meta effects="user-code">_target_.[[Set]]</emu-meta>(_key_, _V_, _receiver_<ins>, *true*</ins>).
         </emu-alg>
       </emu-clause>
     </emu-clause>
