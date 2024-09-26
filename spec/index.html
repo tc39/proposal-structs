@@ -541,6 +541,35 @@ markEffects: true
       </emu-note>
     </emu-clause>
 
+    <emu-clause id="sec-sharedstructcreate" type="abstract operation">
+      <h1>
+        SharedStructCreate (
+          _initializer_: an Abstract Closure with one parameter,
+          optional _internalSlotsList_: a List of internal slot names,
+        ) : a Shared Struct
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. If _internalSlotsList_ is not present, set _internalSlotsList_ to a new empty List.
+        1. Perform EnterSharedStructCreationCriticalSection().
+        1. Let _result_ be OrdinaryObjectCreate(*null*, _internalSlotsList_).
+        1. Set _result_.[[GetOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-getownproperty"></emu-xref>.
+        1. Set _result_.[[DefineOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-defineownproperty"></emu-xref>.
+        1. Set _result_.[[HasProperty]] as specified in <emu-xref href="#sec-shared-struct-hasproperty"></emu-xref>.
+        1. Set _result_.[[Get]] as specified in <emu-xref href="#sec-shared-struct-get"></emu-xref>.
+        1. Set _result_.[[Set]] as specified in <emu-xref href="#sec-shared-struct-set"></emu-xref>.
+        1. Set _result_.[[UnsafeGet]] as specified in <emu-xref href="#sec-shared-struct-unsafeget"></emu-xref>.
+        1. Set _result_.[[UnsafeSet]] as specified in <emu-xref href="#sec-shared-struct-unsafeset"></emu-xref>.
+        1. Set _result_.[[Delete]] as specified in <emu-xref href="#sec-shared-struct-delete"></emu-xref>.
+        1. Perform _initializer_(_result_).
+        1. Perform ! _result_.[[PreventExtensions]]().
+        1. Perform LeaveSharedStructCreationCriticalSection().
+        1. Assert: ! TestIntegrityLevel(_result_, ~sealed~) is *true*.
+        1. Return _result_.
+      </emu-alg>
+    </emu-clause>
+
     <emu-clause id="sec-readsharedstructfield" type="abstract operation">
       <h1>
         ReadSharedStructField (
@@ -960,20 +989,10 @@ markEffects: true
           1. Let _args_ be the List of arguments that was passed to this function by [[Call]] or [[Construct]].
           1. Let _F_ be the active function object.
           1. If NewTarget is not _F_, throw a *TypeError* exception.
-          1. Perform EnterSharedStructCreationCriticalSection().
-          1. Let _result_ be OrdinaryObjectCreate(*null*, « »).
-          1. Set _result_.[[GetOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-getownproperty"></emu-xref>.
-          1. Set _result_.[[DefineOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-defineownproperty"></emu-xref>.
-          1. Set _result_.[[HasProperty]] as specified in <emu-xref href="#sec-shared-struct-hasproperty"></emu-xref>.
-          1. Set _result_.[[Get]] as specified in <emu-xref href="#sec-shared-struct-get"></emu-xref>.
-          1. Set _result_.[[Set]] as specified in <emu-xref href="#sec-shared-struct-set"></emu-xref>.
-          1. Set _result_.[[UnsafeGet]] as specified in <emu-xref href="#sec-shared-struct-unsafeget"></emu-xref>.
-          1. Set _result_.[[UnsafeSet]] as specified in <emu-xref href="#sec-shared-struct-unsafeset"></emu-xref>.
-          1. Set _result_.[[Delete]] as specified in <emu-xref href="#sec-shared-struct-delete"></emu-xref>.
-          1. Perform InitializeStructInstanceFieldsAndBrand(_result_, _F_).
-          1. Perform ! _result_.[[PreventExtensions]]().
-          1. Perform LeaveSharedStructCreationCriticalSection().
-          1. Assert: ! TestIntegrityLevel(_result_, ~sealed~) is *true*.
+          1. Let _createInitializer_ be a new Abstract Closure with parameters (_newSharedStruct_) that captures _F_ and performs the following steps when called:
+            1. Perform InitializeStructInstanceFieldsAndBrand(_newSharedStruct_, _F_).
+            1. Return ~unused~.
+          1. Let _result_ be SharedStructCreate(_createInitializer_).
           1. Perform ? RunStructInstanceFieldInitializers(_result_, _F_).
           1. If _initializer_ is not ~empty~, then
             1. Perform ? Call(_initializer_, _result_).
@@ -1477,25 +1496,16 @@ markEffects: true
       </dl>
       <emu-alg>
         1. Assert: _length_ &le; 2<sup>32</sup> - 1.
-        1. Perform EnterSharedStructCreationCriticalSection().
-        1. Let _A_ be OrdinaryObjectCreate(*null*, « »).
-        1. Set _A_.[[GetOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-getownproperty"></emu-xref>.
-        1. Set _A_.[[DefineOwnProperty]] as specified in <emu-xref href="#sec-shared-struct-defineownproperty"></emu-xref>.
-        1. Set _A_.[[HasProperty]] as specified in <emu-xref href="#sec-shared-struct-hasproperty"></emu-xref>.
-        1. Set _A_.[[Get]] as specified in <emu-xref href="#sec-shared-struct-get"></emu-xref>.
-        1. Set _A_.[[Set]] as specified in <emu-xref href="#sec-shared-struct-set"></emu-xref>.
-        1. Set _A_.[[Delete]] as specified in <emu-xref href="#sec-shared-struct-delete"></emu-xref>.
-        1. Let _k_ be 0.
-        1. Repeat, while _k_ &lt; _length_,
-          1. Let _Pk_ be ! ToString(𝔽(_k_)).
-          1. Create an own data property named _Pk_ of object _A_ whose [[Value]] is *undefined*, [[Writable]] is *true*, [[Enumerable]] is *true*, and [[Configurable]] is *false*.
-          1. Perform WriteSharedStructField(_A_, _Pk_, *undefined*, ~init~).
-        1. Create an own data property named *"length"* of object _A_ whose [[Value]] is 𝔽(_length_), [[Writable]] is *false*, [[Enumerable]] is *false*, and [[Configurable]] is *false*.
-        1. Perform WriteSharedStructField(_A_, *"length"*, 𝔽(_length_), ~init~).
-        1. Perform ! _A_.[[PreventExtensions]]().
-        1. Perform LeaveSharedStructCreationCriticalSection().
-        1. Assert: ! TestIntegrityLevel(_A_, ~sealed~) is *true*.
-        1. Return _A_.
+        1. Let _createInitializer_ be a new Abstract Closure with parameters (_newSharedArray_) that captures _length_ and performs the following steps when called:
+          1. Let _k_ be 0.
+          1. Repeat, while _k_ &lt; _length_,
+            1. Let _Pk_ be ! ToString(𝔽(_k_)).
+            1. Create an own data property named _Pk_ of object _newSharedArray_ whose [[Value]] is *undefined*, [[Writable]] is *true*, [[Enumerable]] is *true*, and [[Configurable]] is *false*.
+            1. Perform WriteSharedStructField(_newSharedArray_, _Pk_, *undefined*, ~init~).
+          1. Create an own data property named *"length"* of object _newSharedArray_ whose [[Value]] is 𝔽(_length_), [[Writable]] is *false*, [[Enumerable]] is *false*, and [[Configurable]] is *false*.
+          1. Perform WriteSharedStructField(_newSharedArray_, *"length"*, 𝔽(_length_), ~init~).
+          1. Return ~unused~.
+        1. Return SharedStructCreate(_createInitializer_).
       </emu-alg>
     </emu-clause>
 
@@ -2558,4 +2568,401 @@ markEffects: true
       </emu-clause>
     </emu-clause>
   </emu-clause>
+</emu-clause>
+
+<emu-clause id="sec-synchronization-primitives">
+  <h1>Synchronization Primitives</h1>
+  <p>Mutexes and condition variables are provided as higher level abstractions, as an easier to use alternative to user-built abstractions on top of Atomics.wait and Atomics.notify. They are Shared Structs with no fields.</p>
+
+  <ins class="block">
+  <emu-clause id="sec-abstract-operations-for-mutex">
+    <h1>Abstract Operations for Mutex Objects</h1>
+
+    <emu-clause id="sec-unlocktokencreateifneeded" type="abstract operation">
+      <h1>
+        UnlockTokenCreateIfNeeded (
+          _token_: an Object or *undefined*,
+          _mutex_: an Object,
+        ) : an Object
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Assert: _mutex_ has a [[MutexWaiterList]] internal slot.
+        1. If _token_ is *undefined*, then
+          1. Set _token_ to OrdinaryObjectCreate(%Atomics.Mutex.UnlockToken.prototype%, « [[LockedMutex]] »).
+        1. Else,
+          1. Assert: _token_ has a [[LockedMutex]] internal slot.
+          1. Assert: _token_.[[LockedMutex]] is ~empty~.
+        1. Set _token_.[[LockedMutex]] to _mutex_.
+        1. Return _token_.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-lockmutex" type="abstract operation">
+      <h1>
+        LockMutex (
+          _mutex_: an Object,
+          _tMillis_: a mathematical value,
+        ) : ~acquired~, ~deadlock~, or ~timed-out~
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Assert: _mutex_ has a [[MutexWaiterList]] internal slot.
+        1. Assert: If _tMillis_ is not 0, AgentCanSuspend() is *true*.
+        1. Let _thisAgent_ be AgentSignifier().
+        1. Let _WL_ be _mutex_.[[MutexWaiterList]].
+        1. Perform EnterCriticalSection(_WL_).
+        1. If _mutex_.[[IsLockedBy]] is ~empty~, then
+          1. Set _mutex_.[[IsLockedBy]] to _thisAgent_.
+          1. Perform LeaveCriticalSection(_WL_).
+          1. Return ~acquired~.
+        1. If _mutex_.[[IsLockedBy]] is _thisAgent_, then
+          1. Return ~deadlock~.
+        1. If _tMillis_ is 0, return ~timed-out~.
+        1. Let _now_ be the time value (UTC) identifying the current time.
+        1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
+        1. Let _timeoutTime_ be ℝ(_now_) + _tMillis_ + _additionalTimeout_.
+        1. NOTE: When _tMillis_ is +∞, _timeoutTime_ is also +∞.
+        1. Let _done_ be *false*.
+        1. Repeat, while _done_ is *false*,
+          1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: _timeoutTime_, [[Result]]: *"ok"* }.
+          1. Perform AddWaiter(_WL_, _waiterRecord_).
+          1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
+          1. If _mutex_.[[IsLockedBy]] is ~empty~, then
+            1. Set _mutex_.[[IsLockedBy]] to _thisAgent_.
+            1. Set _waiterRecord_.[[Result]] to *"ok"*.
+            1. Set _done_ to *true*.
+          1. Else if _waiterRecord_.[[Result]] is *"timed-out"*, then
+            1. Set _done_ to *true*.
+        1. Perform LeaveCriticalSection(_WL_).
+        1. If _waiterRecord_.[[Result]] is *"ok"*, then
+          1. Return ~acquired~.
+        1. Assert: _waiterRecord_.[[Result]] is *"timed-out"*.
+        1. Return ~timed-out~.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-unlockmutex" type="abstract operation">
+      <h1>
+        UnlockMutex (
+          _mutex_: an Object,
+        ) : ~unused~
+      </h1>
+      <dl class="header">
+      </dl>
+      <emu-alg>
+        1. Assert: _mutex_ has a [[MutexWaiterList]] internal slot.
+        1. Let _WL_ be _mutex_.[[MutexWaiterList]].
+        1. Perform EnterCriticalSection(_WL_).
+        1. Assert: _mutex_.[[IsLockedBy]] is AgentSignifier().
+        1. Set _mutex_.[[IsLockedBy]] to ~empty~.
+        1. Let _S_ be RemoveWaiters(_WL_, 1).
+        1. For each element _W_ of _S_, do
+          1. Perform NotifyWaiter(_WL_, _W_).
+        1. Perform LeaveCriticalSection(_WL_).
+        1. Return ~unused~.
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-mutex-object">
+    <h1>The Mutex Constructor</h1>
+    <p>The Mutex constructor:</p>
+    <ul>
+      <li>is <dfn>%Atomics.Mutex%</dfn>.</li>
+      <li>is the initial value of the *"Mutex"* property of the %Atomics% object.</li>
+      <li>creates and initializes a new Mutex when called as constructor.</li>
+      <li>is not intended to be called as a function and will throw an exception when called in that manner.</li>
+    </ul>
+
+    <emu-clause id="sec-atomics.mutex">
+      <h1>Atomics.Mutex ( )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. If NewTarget is *undefined*, throw a *TypeError* exception.
+        1. Let _createInitializer_ be a new Abstract Closure with parameters (_newMutex_) that captures nothing and performs the following steps when called:
+          1. Set _newMutex_.[[MutexWaiterList]] to a new WaiterList Record.
+          1. Set _newMutex_.[[IsLockedBy]] to ~empty~.
+          1. Return ~unused~.
+        1. Return SharedStructCreate(_createInitializer_, « [[MutexWaiterList]], [[IsLockedBy]] »).
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-properties-of-the-mutex-constructor">
+    <h1>Properties of the Mutex Constructor</h1>
+    <p>The Mutex constructor:</p>
+    <ul>
+      <li>has a [[Prototype]] internal slot whose value is %Function.prototype%.</li>
+      <li>has the following properties:</li>
+    </ul>
+
+    <emu-note>
+      <p>Per-Realm prototypes, which is currently an open design question and not included in this draft, will give Mutexes a per-Realm prototype with built-in methods instead of static methods.</p>
+    </emu-note>
+
+    <emu-clause id="sec-atomics.mutex.unlocktoken-prop">
+      <h1>Atomics.Mutex.UnlockToken ( )</h1>
+      <p>See <emu-xref href="#sec-atomics.mutex.unlocktoken"></emu-xref>.</p>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.mutex.lock">
+      <h1>Atomics.Mutex.lock ( _mutex_ [ , _unlockToken_ ] )</h1>
+      <p>This function puts the surrounding agent in a wait queue and suspends it until the mutex is unlocked.</p>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
+        1. If _unlockToken_ not *undefined*, then
+          1. Perform ? RequireInternalSlot(_unlockToken_, [[LockedMutex]]).
+          1. If _unlockToken_.[[LockedMutex]] is not ~empty~, throw a *TypeError* exception.
+        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. Let _result_ be LockMutex(_mutex_, +∞).
+        1. If _result_ is ~deadlock~, throw a *TypeError* exception.
+        1. Assert: _result_ is ~acquired~.
+        1. Return UnlockTokenCreateIfNeeded(_unlockToken_, _mutex_).
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.mutex.lockifavailable">
+      <h1>Atomics.Mutex.lockIfAvailable ( _mutex_, _timeout_ [ , _unlockToken_ ] )</h1>
+      <p>This function puts the surrounding agent in a wait queue and suspends it until the mutex is unlocked, or until the wait times out. If _timeout_ is 0, this function can be called in agents that cannot suspend.</p>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_mutex_, [[MutexWaiterList]]).
+        1. If _unlockToken_ not *undefined*, then
+          1. Perform ? RequireInternalSlot(_unlockToken_, [[LockedMutex]]).
+          1. If _unlockToken_.[[LockedMutex]] is not ~empty~, throw a *TypeError* exception.
+        1. If _timeout_ is not a Number, throw a *TypeError* exception.
+        1. If _timeout_ is either *NaN* or *+∞*<sub>𝔽</sub>, let _tMillis_ be +∞; else if _timeout_ is *-∞*<sub>𝔽</sub>, let _tMillis_ be 0; else let _tMillis_ be max(ℝ(_timeout_), 0).
+        1. If _tMillis_ is not 0 and AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. Let _result_ be LockMutex(_mutex_, _tMillis_).
+        1. If _result_ is ~deadlock~, then
+          1. Throw *TypeError* exception.
+        1. Else if _result_ is ~acquired~, then
+          1. Return UnlockTokenCreateIfNeeded(_unlockToken_, _mutex_).
+        1. Else,
+          1. Assert: _result_ is ~timed-out~.
+          1. Return *null*.
+          1. NOTE: The return value of the timed-out case is an open design question. Specifically, whether the return value ought to throw when attempted to be used with the `using` syntax.
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-unlocktoken-objects">
+    <h1>UnlockToken Objects</h1>
+    <p>An UnlockToken is the unlock capability returned when a Mutex's lock is acquired. It can be reused. An uninitialized UnlockToken can be created by using the Atomics.Mutex.UnlockToken constructor.</p>
+
+    <emu-clause id="sec-unlocktoken-constructor">
+      <h1>The UnlockToken Constructor</h1>
+      <p>The UnlockToken constructor:</p>
+      <ul>
+        <li>is <dfn>%Atomics.Mutex.UnlockToken%</dfn>.</li>
+        <li>is the initial value of the *"UnlockToken"* property of the %Atomics.Mutex% object.</li>
+        <li>creates and initializes a new UnlockToken when called as a constructor.</li>
+        <li>is not intended to be called as a function and will throw an exception when called in that manner.</li>
+      </ul>
+
+      <emu-clause id="sec-atomics.mutex.unlocktoken">
+        <h1>Atomics.Mutex.UnlockToken ( )</h1>
+        <p>This function performs the following steps when called:</p>
+        <emu-alg>
+          1. If NewTarget is *undefined*, throw a *TypeError* exception.
+          1. Let _token_ be OrdinaryObjectCreate(%Atomics.Mutex.UnlockToken.prototype%, « [[LockedMutex]] »).
+          1. Set _token_.[[LockedMutex]] to ~empty~.
+          1. Return _token_.
+        </emu-alg>
+      </emu-clause>
+    </emu-clause>
+
+    <emu-clause id="sec-properties-of-the-unlocktoken-constructor">
+      <h1>Properties of the UnlockToken Constructor</h1>
+      <p>The UnlockToken constructor:</p>
+      <ul>
+        <li>has a [[Prototype]] internal slot whose value is %Function.prototype%.</li>
+        <li>has the following properties:</li>
+      </ul>
+
+      <emu-clause id="sec-atomics.mutex.unlocktoken.prototype">
+        <h1>Atomics.Mutex.UnlockToken.prototype</h1>
+        <p>The initial value of `Atomics.Mutex.UnlockToken.prototype` is the UnlockToken prototype object.</p>
+        <p>This property has the attributes { [[Writable]]: *false*, [[Enumerable]]: *false*, [[Configurable]]: *false* }.</p>
+      </emu-clause>
+    </emu-clause>
+
+    <emu-clause id="sec-properties-of-the-unlocktoken-prototype">
+      <h1>Properties of the UnlockToken Prototype Object</h1>
+      <p>The <dfn>UnlockToken prototype</dfn> object:</p>
+      <ul>
+        <li>is <dfn>%Atomics.Mutex.UnlockToken.prototype%</dfn>.</li>
+        <li>has a [[Prototype]] internal slot whose value is %Object.prototype%.</li>
+        <li>is an ordinary object.</li>
+        <li>does not have a [[LockedMutex]] internal slot.</li>
+        <li>has the following properties:</li>
+      </ul>
+
+      <emu-clause id="sec-get-atomics.mutex.unlocktoken.prototype.locked">
+        <h1>get Atomics.Mutex.UnlockToken.prototype.locked</h1>
+        <p>`Atomics.Mutex.UnlockToken.locked` is an accessor property whose set accessor is *undefined*. Its get accessor function performs the following steps when called:</p>
+        <emu-alg>
+          1. Let _token_ be the *this* value.
+          1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
+          1. If _token_.[[LockedMutex]] is ~empty~, return *false*; else return *true*.
+        </emu-alg>
+      </emu-clause>
+
+      <emu-clause id="sec-atomics.mutex.unlocktoken.prototype.unlock">
+        <h1>Atomics.Mutex.UnlockToken.prototype.unlock ( )</h1>
+        <p>This function performs the following steps when called:</p>
+        <emu-alg>
+          1. Let _token_ be the *this* value.
+          1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
+          1. Let _mutex_ be _token_.[[LockedMutex]].
+          1. If _mutex_ is not ~empty~, then
+            1. Set _token_.[[LockedMutex]] to ~empty~.
+            1. Perform UnlockMutex(_mutex_).
+            1. Return *true*.
+          1. Return *false*.
+        </emu-alg>
+      </emu-clause>
+
+      <emu-clause id="sec-atomics.mutex.unlocktoken.prototype.%symbol.dispose%">
+        <h1>Atomics.Mutex.UnlockToken.prototype [ %Symbol.dispose% ] ( )</h1>
+        <p>This function performs the following steps when called:</p>
+        <emu-alg>
+          1. Let _token_ be the *this* value.
+          1. Perform ? RequireInternalSlot(_token_, [[LockedMutex]]).
+          1. Let _mutex_ be _token_.[[LockedMutex]].
+          1. If _mutex_ is not ~empty~, then
+            1. Set _token_.[[LockedMutex]] to ~empty~.
+            1. Perform UnlockMutex(_mutex_).
+          1. Return *undefined*.
+        </emu-alg>
+      </emu-clause>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-condition-object">
+    <h1>The Condition Constructor</h1>
+    <p>The Condition constructor:</p>
+    <ul>
+      <li>is <dfn>%Atomics.Condition%</dfn>.</li>
+      <li>is the initial value of the *"Condition"* property of the %Atomics% object.</li>
+      <li>creates and initializes a new Condition when called as constructor.</li>
+      <li>is not intended to be called as a function and will throw an exception when called in that manner.</li>
+    </ul>
+
+    <emu-clause id="sec-atomics.condition">
+      <h1>Atomics.Condition ( )</h1>
+      <p>This function performs the following steps when called:</p>
+      <emu-alg>
+        1. If NewTarget is *undefined*, throw a *TypeError* exception.
+        1. Let _createInitializer_ be a new Abstract Closure with parameters (_newCV_) that captures nothing and performs the following steps when called:
+          1. Set _newCV_.[[ConditionWaiterList]] to a new WaiterList Record.
+          1. Return ~unused~.
+        1. Return SharedStructCreate(_createInitializer_, « [[ConditionWaiterList]] »).
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+
+  <emu-clause id="sec-properties-of-the-condition-constructor">
+    <h1>Properties of the Condition Constructor</h1>
+    <p>The Condition constructor:</p>
+    <ul>
+      <li>has a [[Prototype]] internal slot whose value is %Function.prototype%.</li>
+      <li>has the following properties:</li>
+    </ul>
+
+    <emu-note>
+      <p>Per-Realm prototypes, which is currently an open design question and not included in this draft, will give Conditions a per-Realm prototype with built-in methods instead of static methods.</p>
+    </emu-note>
+
+    <emu-clause id="sec-atomics.condition.wait">
+      <h1>Atomics.Condition.wait ( _cv_, _mutexUnlockToken_ )</h1>
+      <p>This function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until the condition variable is notified.</p>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
+        1. Perform ? RequireInternalSlot(_mutexUnlockToken_, [[LockedMutex]]).
+        1. Let _mutex_ be _mutexUnlockToken_.[[LockedMutex]].
+        1. If _mutex_ is ~empty~, throw a *TypeError* exception.
+        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. Let _thisAgent_ be AgentSignifier().
+        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
+        1. Perform EnterCriticalSection(_WL_).
+        1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: +∞, [[Result]]: *"ok"* }.
+        1. Perform AddWaiter(_WL_, _waiterRecord_).
+        1. Perform UnlockMutex(_mutex_).
+        1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
+        1. Perform LeaveCriticalSection(_WL_).
+        1. Let _lockResult_ be LockMutex(_mutex_, +∞).
+        1. Assert: _lockResult_ is ~acquired~.
+        1. Assert: _waiterRecord_.[[Result]] is *"ok"*.
+        1. Return *undefined*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.condition.waitFor">
+      <h1>Atomics.Condition.waitFor ( _cv_, _mutexUnlockToken_, _timeout_ [ , _predicate_ ] )</h1>
+      <p>If _predicate_ is *undefined*, this function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until the condition variable is notified or until the wait times out, returning *true* for the former and *false* for the latter.</p>
+      <p>If a _predicate_ is passed and calling it returns *false*, this function atomically unlocks _mutexUnlockToken_ and puts the surrounding agent in a wait queue and suspends it until _predicate_ returns *true*, or until the wait times out. Whenever _predicate_ is executing, the lock on the underlying mutex of _mutexUnlockToken_ is acquired. Returns return value of the final call to _predicate_.</p>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
+        1. Perform ? RequireInternalSlot(_mutexUnlockToken_, [[LockedMutex]]).
+        1. Let _mutex_ be _mutexUnlockToken_.[[LockedMutex]].
+        1. If _mutex_ is ~empty~, throw a *TypeError* exception.
+        1. If _timeout_ is not a Number, throw a *TypeError* exception.
+        1. If _timeout_ is either *NaN* or *+∞*<sub>𝔽</sub>, let _tMillis_ be +∞; else if _timeout_ is *-∞*<sub>𝔽</sub>, let _tMillis_ be 0; else let _tMillis_ be max(ℝ(_timeout_), 0).
+        1. If _predicate_ is not *undefined* and IsCallable(_predicate_) is *false*, throw a *TypeError* exception.
+        1. If AgentCanSuspend() is *false*, throw a *TypeError* exception.
+        1. Let _timeBeforeWaitLoop_ be the time value (UTC) identifying the current time.
+        1. Let _additionalTimeout_ be an implementation-defined non-negative mathematical value.
+        1. Let _timeoutTime_ be ℝ(_timeBeforeWaitLoop_) + _tMillis_ + _additionalTimeout_.
+        1. NOTE: When _tMillis_ is +∞, _timeoutTime_ is also +∞.
+        1. Let _thisAgent_ be AgentSignifier().
+        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
+        1. Let _satisfied_ be *false*.
+        1. Repeat,
+          1. If _predicate_ is not *undefined*, then
+            1. Set _satisfied_ to ToBoolean(? Call(_predicate_, *undefined*)).
+          1. If _satisfied_ is *true*, return *true*.
+          1. Let _now_ be the time value (UTC) identifying the current time.
+          1. If _now_ &ge; _timeoutTime_, return *false*.
+          1. Perform EnterCriticalSection(_WL_).
+          1. Let _waiterRecord_ be a new Waiter Record { [[AgentSignifier]]: _thisAgent_, [[PromiseCapability]]: ~blocking~, [[TimeoutTime]]: _timeoutTime_, [[Result]]: *"ok"* }.
+          1. Perform AddWaiter(_WL_, _waiterRecord_).
+          1. Perform UnlockMutex(_mutex_).
+          1. Perform SuspendThisAgent(_WL_, _waiterRecord_).
+          1. Perform LeaveCriticalSection(_WL_).
+          1. Let _lockResult_ be LockMutex(_mutex_, +∞).
+          1. Assert: _lockResult_ is ~acquired~.
+          1. If _waiterRecord_.[[Result]] is *"ok"*, then
+            1. Set _satisfied_ to *true*.
+          1. Else,
+            1. Assert: _waiterRecord_.[[Result]] is *"timed-out"*.
+            1. Set _satisfied_ to *false*.
+      </emu-alg>
+    </emu-clause>
+
+    <emu-clause id="sec-atomics.condition.notify">
+      <h1>Atomics.Condition.notify ( _cv_ [ , _count_ ] )</h1>
+      <p>It performs the following steps when called:</p>
+      <emu-alg>
+        1. Perform ? RequireInternalSlot(_cv_, [[ConditionWaiterList]]).
+        1. If _count_ is *undefined*, set _count_ to *+∞*<sub>𝔽</sub>.
+        1. If _count_ is not an integral Number or is not *+∞*<sub>𝔽</sub>, throw a *TypeError* exception.
+        1. Let _WL_ be _cv_.[[ConditionWaiterList]].
+        1. Perform EnterCriticalSection(_WL_).
+        1. Let _S_ be RemoveWaiters(_WL_, ℝ(_count_)).
+        1. For each element _W_ of _S_, do
+          1. Perform NotifyWaiter(_WL_, _W_).
+        1. Perform LeaveCriticalSection(_WL_).
+        1. Let _n_ be the number of elements in _S_.
+        1. Return 𝔽(_n_).
+      </emu-alg>
+    </emu-clause>
+  </emu-clause>
+  </ins>
 </emu-clause>
