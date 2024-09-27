@@ -103,6 +103,10 @@ sharedBox.x = 42;          // x is declared and rhs is primitive
 sharedBox.x = sharedBox2;  // x is declared and rhs is shared
 assertThrows(() => { sharedBox.x = {}; }) // rhs is not a shared struct
 
+// can programmatically test if a value can be shared
+assert(Reflect.canBeShared(sharedBox2));
+assert(!Reflect.canBeShared({}));
+
 let worker = new Worker('worker.js');
 worker.postMessage({ sharedBox });
 
