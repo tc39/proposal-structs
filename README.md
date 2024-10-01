@@ -99,9 +99,11 @@ shared struct SharedBox {
 let sharedBox = new SharedBox();
 let sharedBox2 = new SharedBox();
 
-sharedBox.x = 42;          // x is declared and rhs is primitive
-sharedBox.x = sharedBox2;  // x is declared and rhs is shared
-assertThrows(() => { sharedBox.x = {}; }) // rhs is not a shared struct
+unsafe {
+  sharedBox.x = 42;          // x is declared and rhs is primitive
+  sharedBox.x = sharedBox2;  // x is declared and rhs is shared
+  assertThrows(() => { sharedBox.x = {}; }) // rhs is not a shared struct
+}
 
 // can programmatically test if a value can be shared
 assert(Reflect.canBeShared(sharedBox2));
@@ -110,16 +112,20 @@ assert(!Reflect.canBeShared({}));
 let worker = new Worker('worker.js');
 worker.postMessage({ sharedBox });
 
-sharedBox.x = "main";      // x is declared and rhs is primitive
-console.log(sharedBox.x);
+unsafe {
+  sharedBox.x = "main";      // x is declared and rhs is primitive
+  console.log(sharedBox.x);
+}
 ```
 
 ```javascript
 // worker.js
 onmessage = function(e) {
   let sharedBox = e.data.sharedBox;
-  sharedBox.x = "worker";  // x is declared and rhs is primitive
-  console.log(sharedBox.x);
+  unsafe {
+    sharedBox.x = "worker";  // x is declared and rhs is primitive
+    console.log(sharedBox.x);
+  }
 };
 ```
 
@@ -135,25 +141,31 @@ Shared Arrays are a fixed-length arrays that may be shared across agents. They a
 
 ```javascript
 let sharedArray = new SharedArray(100);
-assert(sharedArray.length === 100);
-for (i = 0; i < sharedArray.length; i++) {
-  // like shared structs, all elements are initialized to undefined
-  assert(sharedArray[i] === undefined);
+unsafe {
+  assert(sharedArray.length === 100);
+  for (i = 0; i < sharedArray.length; i++) {
+    // like shared structs, all elements are initialized to undefined
+    assert(sharedArray[i] === undefined);
+  }
 }
 
 let worker = new Worker('worker_array.js');
 worker.postMessage({ sharedArray });
 
-sharedArray[0] = "main";
-console.log(sharedArray[0]);
+unsafe {
+  sharedArray[0] = "main";
+  console.log(sharedArray[0]);
+}
 ```
 
 ```javascript
 // worker_array.js
 onmessage = function(e) {
   let sharedArray = e.data.sharedArray;
-  sharedArray[0] = "worker";
-  console.log(sharedArray[0]);
+  unsafe {
+    sharedArray[0] = "worker";
+    console.log(sharedArray[0]);
+  }
 };
 ```
 
@@ -281,13 +293,13 @@ let worker = new Worker('worker_mutex.js');
 worker.postMessage({ point });
 
 // assume this agent can block
-{
+unsafe {
   using lock = Atomics.Mutex.lock(point.mutex);
   point.x = "main";
   point.y = "main";
 }
 
-{
+unsafe {
   using lock = Atomics.Mutex.lock(point.mutex);
   console.log(point.x, point.y);
 }
@@ -297,7 +309,7 @@ worker.postMessage({ point });
 // worker_mutex.js
 onmessage = function(e) {
   let point = e.data.point;
-  {
+  unsafe {
     using lock = Atomics.Mutex.lock(point.mutex);
     point.x = "worker";
     point.y = "worker";
