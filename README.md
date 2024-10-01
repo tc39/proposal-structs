@@ -224,7 +224,7 @@ Higher-level synchronization primitives are needed to aid in writing threadsafe 
 The following pseudocode describes the API.
 
 ```javascript
-class Atomics.Mutex {
+shared struct Atomics.Mutex {
   // Creates a new mutex.
   constructor();
 
@@ -330,7 +330,7 @@ That is, because point the `x` and `y` fields are accessed under lock, no agent 
 The following pseudocode describes the API.
 
 ```javascript
-class Atomics.Condition {
+shared struct Atomics.Condition {
   // Creates a new condition variable.
   constructor();
 
