@@ -25,9 +25,6 @@ markEffects: true
         `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await] StructTail[?Yield, ?Await]
         [+Default] `struct` [no LineTerminator here] StructTail[?Yield, ?Await]
 
-      StructExpression[Yield, Await] :
-        `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await]? StructTail[?Yield, ?Await]
-
       StructTail[Yield, Await] :
         ClassHeritage[?Yield, ?Await]? `{` StructBody[?Yield, ?Await]? `}`
 
@@ -300,19 +297,6 @@ markEffects: true
       <emu-alg>
         1. Perform ? BindingStructDeclarationEvaluation of this |StructDeclaration|.
         1. Return ~empty~.
-      </emu-alg>
-      <emu-grammar>StructExpression : `struct` StructTail</emu-grammar>
-      <emu-alg>
-        1. Let _value_ be ? StructDefinitionEvaluation of |StructTail| with arguments *undefined* and *""*.
-        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
-        1. Return _value_.
-      </emu-alg>
-      <emu-grammar>StructExpression : `struct` BindingIdentifier StructTail</emu-grammar>
-      <emu-alg>
-        1. Let _structName_ be StringValue of |BindingIdentifier|.
-        1. Let _value_ be ? StructDefinitionEvaluation of |StructTail| with arguments _structName_ and _structName_.
-        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
-        1. Return _value_.
       </emu-alg>
     </emu-clause>
     </ins>
@@ -754,9 +738,6 @@ markEffects: true
         `shared` [no LineTerminator here] `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await] SharedStructTail[?Yield, ?Await]
         [+Default] `shared` [no LineTerminator here] `struct` [no LineTerminator here] SharedStructTail[?Yield, ?Await]
 
-      StructExpression[Yield, Await] :
-        `shared` [no LineTerminator here] `struct` [no LineTerminator here] BindingIdentifier[?Yield, ?Await]? SharedStructTail[?Yield, ?Await]
-
       SharedStructTail[Yield, Await] :
         ClassHeritage[?Yield, ?Await]? `{` SharedStructBody[?Yield, ?Await]? `}`
 
@@ -1048,19 +1029,6 @@ markEffects: true
       <emu-alg>
         1. Perform ? BindingStructDeclarationEvaluation of this |StructDeclaration|.
         1. Return ~empty~.
-      </emu-alg>
-      <emu-grammar>StructExpression : `shared` `struct` SharedStructTail</emu-grammar>
-      <emu-alg>
-        1. Let _value_ be ? SharedStructDefinitionEvaluation of |SharedStructTail| with arguments *undefined* and *""*.
-        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
-        1. Return _value_.
-      </emu-alg>
-      <emu-grammar>StructExpression : `shared` `struct` BindingIdentifier SharedStructTail</emu-grammar>
-      <emu-alg>
-        1. Let _structName_ be StringValue of |BindingIdentifier|.
-        1. Let _value_ be ? SharedStructDefinitionEvaluation of |SharedStructTail| with arguments _structName_ and _structName_.
-        1. Set _value_.[[SourceText]] to the source text matched by |StructExpression|.
-        1. Return _value_.
       </emu-alg>
     </emu-clause>
     </ins>
