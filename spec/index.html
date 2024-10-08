@@ -1630,6 +1630,55 @@ markEffects: true
     </emu-clause>
   </emu-clause>
 
+  <emu-clause id="sec-changes-to-the-object-type">
+    <h1>Changes to the Object Type</h1>
+    <emu-clause id="sec-object-internal-methods-and-internal-slots">
+      <h1>Object Internal Methods and Internal Slots</h1>
+      <emu-table id="table-essential-internal-methods" caption="Essential Internal Methods" oldids="table-5">
+        <table>
+          <thead>
+            <tr>
+              <th>
+                Internal Method
+              </th>
+              <th>
+                Signature
+              </th>
+              <th>
+                Description
+              </th>
+            </tr>
+          </thead>
+          <tr>
+            <td>
+              [[Get]]
+            </td>
+            <td>
+              (_propertyKey_, _Receiver_<ins>, _unsafe_</ins>) <b>→</b> <em>any</em>
+            </td>
+            <td>
+              Return the value of the property whose key is _propertyKey_ from this object. If any ECMAScript code must be executed to retrieve the property value, _Receiver_ is used as the *this* value when evaluating the code. <ins>If this operation is to be performed from within an `unsafe` block, _unsafe_ will be *true*; otherwise, _unsafe_ will be *false*.</ins>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              [[Set]]
+            </td>
+            <td>
+              (_propertyKey_, _value_, _Receiver_<ins>, _unsafe_</ins>) <b>→</b> Boolean
+            </td>
+            <td>
+              Set the value of the property whose key is _propertyKey_ to _value_. If any ECMAScript code must be executed to set the property value, _Receiver_ is used as the *this* value when evaluating the code. <ins>If this operation is to be performed from within an `unsafe` block, _unsafe_ will be *true*; otherwise, _unsafe_ will be *false*.</ins> Returns *true* if the property value was set or *false* if it could not be set.
+            </td>
+          </tr>
+        </table>
+      </emu-table>
+      <emu-note>
+        <p>DRAFT NOTE: Except where specified, it is assumed that existing invocations of [[Get]] or [[Set]] that do not currently pass a value for the _unsafe_ parameter are assumed to pass *false*. These call sites will be updated when the fully integrated specification text becomes available during Stage 2.</p>
+      </emu-note>
+    </emu-clause>
+  </emu-clause>
+
   <emu-clause id="sec-changes-to-ordinary-and-exotic-objects-behaviours">
     <h1>Changes to Ordinary and Exotic Objects Behaviours</h1>
     <emu-clause id="sec-ordinary-object-internal-methods-and-internal-slots">
