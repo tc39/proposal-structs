@@ -494,4 +494,4 @@ Production engines use moving garbage collectors, such as generational collector
 
 Engines can choose to pin these objects and make them immovable.
 
-Engines can also choose to implement synchronization primitives entirely in userspace. For example, WebKit's `ParkingLot`](https://webkit.org/blog/6161/locking-in-webkit/) is a userspace implementation of Linux futexes. This may have other benefits, such as improved and tuneable performance.
+Engines can also choose to implement synchronization primitives entirely in userspace. For example, WebKit's [`ParkingLot`](https://webkit.org/blog/6161/locking-in-webkit/) is a userspace implementation of Linux futexes. This may have other benefits, such as improved and tuneable performance.
