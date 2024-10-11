@@ -37,7 +37,7 @@ Structs have the following properties:
 - Struct `constructor` methods have a usable `this` value, which is the one-shot initialize instance, on entry. As a result, return override is not expressible. `super()` is still allowed, but not required.
 - They can only extend other structs.
 - The struct constructor itself is also sealed.
-- Struct methods are non-generic. Their this value must be an instance of the struct or of a subclass.
+- Struct methods are non-generic. Their `this` value must be an instance of the struct or of a subclass.
 
 Struct declarations use the `struct` keyword, and share their syntax with `class` declarations.
 
