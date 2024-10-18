@@ -1,6 +1,6 @@
 # JavaScript Structs: Fixed Layout Objects and Some Synchronization Primitives
 
-Stage: 1
+Stage: 2
 
 Author: Shu-yu Guo (@syg)
 
