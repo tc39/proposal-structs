@@ -478,19 +478,19 @@ Structs are declared with fixed layout up front. Engines should make an immutabl
 
 ### Shared structs: make sure fields are pointer-width and aligned
 
-Shared structs should store fields such that underlying architectures can perform atomic stores and loads. This usually eans the fields should be at least pointer-width and aligned.
+Shared structs should store fields such that underlying architectures can perform atomic stores and loads. This usually means the fields should be at least pointer-width and aligned.
 
 ### Shared structs: strings will be difficult
 
 Except for strings, sharing primitives in the engine is usually trivial, especially for NaN-boxing implementations.
 
-Strings in production engines have in-place mutation to transition representation in order to optimize for different use ases (e.g. ropes, slices, canonicalized, etc). Sharing strings will likely be the most challenging part of the mplementation.
+Strings in production engines have in-place mutation to transition representation in order to optimize for different use cases (e.g. ropes, slices, canonicalized, etc). Sharing strings will likely be the most challenging part of the implementation.
 
-It is possible to support sharing strings by copying-on-sharing, but may be too slow. If possible, lockfree mplementations of in-place mutations above is ideal.
+It is possible to support sharing strings by copying-on-sharing, but may be too slow. If possible, lockfree implementations of in-place mutations above is ideal.
 
 ### Synchronization primitives: they must be moving GC-safe
 
-Production engines use moving garbage collectors, such as generational collectors and compacting collectors. If JS ynchronization primitives are implemented under the hood as OS-level synchronization primitives, those primitives most ikely depend on an unchanging address in memory and are _not_ moving GC-safe.
+Production engines use moving garbage collectors, such as generational collectors and compacting collectors. If JS synchronization primitives are implemented under the hood as OS-level synchronization primitives, those primitives most likely depend on an unchanging address in memory and are _not_ moving GC-safe.
 
 Engines can choose to pin these objects and make them immovable.
 
