@@ -84,7 +84,7 @@ Shared structs are structs with even more restricted behavior, so as to make the
 Shared structs, in addition to the properties listed for structs above, have the following additional properties:
 - They can only extend other shared structs.
 - They have a `null` prototype.
-- They cannot contain instance methods or instance private names.
+- They cannot contain instance methods.
 - Their instances can be communicated to other agents without copying.
 - Their fields can only reference primitives or other shared structs. That is, they cannot point to unshared values.
 - They cannot be frozen, because that would change their shape, which must be immutable to be amenable for sharing.
