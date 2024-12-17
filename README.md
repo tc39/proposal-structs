@@ -13,7 +13,6 @@ This proposal introduces four (4) logical features:
 - [**Structs**](#structs), or unshared structs, which are fixed-layout objects. They behave like `class` instances, with more restrictions that are beneficial for optimizations and analysis.
 - [**Shared Structs**](#shared-structs), which are further restricted structs that can be shared and accessed in parallel by multiple agents. They enable shared memory multithreading.
 - [**Mutex and Condition**](#mutex-and-condition), which are higher level abstractions for synchronizing access to shared memory.
-- [**Unsafe Blocks**](#unsafe-blocks), which are syntactic guardrails to lexically scope where racy accesses to shared structs are allowed.
 
 This proposal is intended to be minimal, but still useful by itself, without follow-up proposals.
 
@@ -99,11 +98,9 @@ shared struct SharedBox {
 let sharedBox = new SharedBox();
 let sharedBox2 = new SharedBox();
 
-unsafe {
-  sharedBox.x = 42;          // x is declared and rhs is primitive
-  sharedBox.x = sharedBox2;  // x is declared and rhs is shared
-  assertThrows(() => { sharedBox.x = {}; }) // rhs is not a shared struct
-}
+sharedBox.x = 42;          // x is declared and rhs is primitive
+sharedBox.x = sharedBox2;  // x is declared and rhs is shared
+assertThrows(() => { sharedBox.x = {}; }) // rhs is not a shared struct
 
 // can programmatically test if a value can be shared
 assert(Reflect.canBeShared(sharedBox2));
@@ -112,20 +109,16 @@ assert(!Reflect.canBeShared({}));
 let worker = new Worker('worker.js');
 worker.postMessage({ sharedBox });
 
-unsafe {
-  sharedBox.x = "main";      // x is declared and rhs is primitive
-  console.log(sharedBox.x);
-}
+sharedBox.x = "main";      // x is declared and rhs is primitive
+console.log(sharedBox.x);
 ```
 
 ```javascript
 // worker.js
 onmessage = function(e) {
   let sharedBox = e.data.sharedBox;
-  unsafe {
-    sharedBox.x = "worker";  // x is declared and rhs is primitive
-    console.log(sharedBox.x);
-  }
+  sharedBox.x = "worker";  // x is declared and rhs is primitive
+  console.log(sharedBox.x);
 };
 ```
 
@@ -141,31 +134,25 @@ Shared Arrays are a fixed-length arrays that may be shared across agents. They a
 
 ```javascript
 let sharedArray = new SharedArray(100);
-unsafe {
-  assert(sharedArray.length === 100);
-  for (i = 0; i < sharedArray.length; i++) {
-    // like shared structs, all elements are initialized to undefined
-    assert(sharedArray[i] === undefined);
-  }
+assert(sharedArray.length === 100);
+for (i = 0; i < sharedArray.length; i++) {
+  // like shared structs, all elements are initialized to undefined
+  assert(sharedArray[i] === undefined);
 }
 
 let worker = new Worker('worker_array.js');
 worker.postMessage({ sharedArray });
 
-unsafe {
-  sharedArray[0] = "main";
-  console.log(sharedArray[0]);
-}
+sharedArray[0] = "main";
+console.log(sharedArray[0]);
 ```
 
 ```javascript
 // worker_array.js
 onmessage = function(e) {
   let sharedArray = e.data.sharedArray;
-  unsafe {
-    sharedArray[0] = "worker";
-    console.log(sharedArray[0]);
-  }
+  sharedArray[0] = "worker";
+  console.log(sharedArray[0]);
 };
 ```
 
@@ -293,13 +280,13 @@ let worker = new Worker('worker_mutex.js');
 worker.postMessage({ point });
 
 // assume this agent can block
-unsafe {
+{
   using lock = Atomics.Mutex.lock(point.mutex);
   point.x = "main";
   point.y = "main";
 }
 
-unsafe {
+{
   using lock = Atomics.Mutex.lock(point.mutex);
   console.log(point.x, point.y);
 }
@@ -309,7 +296,7 @@ unsafe {
 // worker_mutex.js
 onmessage = function(e) {
   let point = e.data.point;
-  unsafe {
+  {
     using lock = Atomics.Mutex.lock(point.mutex);
     point.x = "worker";
     point.y = "worker";
@@ -373,58 +360,6 @@ shared struct Atomics.Condition {
                : Number;
 }
 ```
-
-### Unsafe Blocks
-
-Correct multithreaded programs are difficult to write, because races are subtle and difficult to reason about. To decrease the likelihood of incorrect programs, accesses to shared structs are only allowed when lexically contained with in an `unsafe { }` block. Note that SharedArrayBuffer access remains allowed in all contexts for backwards compatibilty.
-
-The `unsafe` keyword is a clear signal of intent that a developer is choosing to work with shared memory multithreaded code. The presence of an `unsafe` block is an indication to code reviewers that special care must be taken during review. It also is acts as a syntactic marker that future tooling (linters, type checkers, etc.) could use to identify data races.
-
-An `unsafe {}` block is otherwise treated the same as a normal Block. Its only distinction is that it explicitly labels code within the block as potentially containing non-thread-safe (e.g., "unsafe") code. The general expectation is that any thread safety concerns should be addressed by the developer as control flow exits the unsafe block. For example, you could utilize using to synchronize access to a shared struct via a lock:
-
-```javascript
-shared struct Counter {
-  value = 0;
-}
-
-// normal JS code, outside of an "unsafe" context
-const ctr = new Counter(); // allocations allowed
-assertThrows(() => ctr.value = 1); // error (writes shared memory)
-assertThrows(() => ctr.value);     // error (reads shared memory)
-
-// "unsafe" JS code
-unsafe {
-  ctr.value = 1; // ok
-  ctr.value;     // ok
-}
-
-function incrementCounter(ctr, mutex) {
-  unsafe {
-    using lck = Atomics.Mutex.lock(mutex);
-    ctr.value++;
-  }
-}
-```
-
-Here, when the control enters the `unsafe` block, we allocate a lock against the provided mutex via a `using` declaration. As control exits the `unsafe` block, the lock tracked by using is released.
-
-#### Lexically Scoped
-
-The `unsafe` keyword is a syntactic marker that applies to lexically scoped reads and writes of the fields of a shared struct instance. Within an `unsafe` block, any lexically scoped accesses are permitted, even if they are nested within another function declared in the same block. This special lexical context shares some surface level similarities with the lexical scoping rules for private names, or the runtime semantics of "use strict".
-
-Since `unsafe` is lexically scoped, it does not carry over to the invocation of functions declared outside of an `unsafe` context:
-
-```javascript
-function increment(ctr) {
-  ctr.value++; // error due to illegal read/write of `ctr.value` outside of `unsafe`
-}
-unsafe {
-  const ctr = new Counter();
-  increment(ctr);
-}
-```
-
-Thread-safe code may execute `unsafe` code without restriction, and `unsafe` code may do likewise. As `unsafe` already indicates a transition boundary between thread-safe and `unsafe` code, there is no need to declare all calling code `unsafe` as you might need to do for `async`/`await`. The `unsafe` keyword itself does not entail any implicit synchronization or coordination as that would be in opposition to our performance goals. Instead, the onus is on developers to be cognizant of thread safety concerns when they define an `unsafe` block. As such, a developer can choose the coordination mechanism that best suits the needs of their application, be that a `Mutex`, a lock-free concurrent deque, etc.
 
 ## Open Questions
 
